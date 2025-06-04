@@ -18,6 +18,42 @@
 #define CSON_ERR_MAX_SIZE_REACHED -6
 #define CSON_ERR_NOT_FOUND -7
 
+#define __CSON_DEBUG
+
+#ifdef __CSON_DEBUG
+#define debug_printf(...) printf(__VA_ARGS__)
+void debug_free(void *ptr) { \
+	printf("Freeing address 0x%p\n", ptr); \
+	free(ptr); \
+}
+void *debug_malloc(size_t size) {
+	printf("Allocating pointer with size %llu byte(s)\n", size);
+	void *ptr = malloc(size);
+	printf("Resulting ptr: 0x%p\n", ptr);
+	return ptr;
+}
+void *debug_calloc(const size_t num_elements, const size_t element_size) {
+	printf("Allocating pointer with length %lld and size %llu byte(s)\n", num_elements, num_elements * element_size);
+	void *ptr = calloc(num_elements, element_size);
+	printf("Resulting ptr: 0x%p\n", ptr);
+	return ptr;
+}
+void *debug_realloc(void *ptr, size_t size) {
+	printf("Rellocating pointer at address %p with size %llu byte(s)\n", ptr, size);
+	void *new_ptr = realloc(ptr, size);
+	printf("Resulting ptr: 0x%p\n", new_ptr);
+	return new_ptr;
+}
+#else
+#define debug_printf(...) {}
+#define debug_free(ptr) free(ptr)
+#define debug_malloc(size) malloc(size)
+#define debug_calloc(num, size) calloc(num, size)
+#define debug_realloc(ptr, size) realloc(ptr, size)
+#endif // __CSON_DEBUG
+
+#define LOG_STRING "[%s]:%d "
+
 #define CSON_EXPECT 10
 
 struct __json_object;
@@ -94,17 +130,6 @@ struct __json_object {
 	json_string_t *keys;
 	ssize_t count, size;
 };
-
-#define CSON_PARSER_FLAG_FOUND_SIGN 1
-#define CSON_PARSER_FLAG_FOUND_PERIOD 2
-#define CSON_PARSER_FLAG_FOUND_EXPONENT 4
-#define CSON_PARSER_FLAG_FOUND_NULL_N 8
-#define CSON_PARSER_FLAG_FOUND_NULL_U 16
-#define CSON_PARSER_FLAG_FOUND_NULL_L1 32
-#define CSON_PARSER_FLAG_FOUND_KEY_START 64
-#define CSON_PARSER_FLAG_FOUND_KEY_END 128
-#define CSON_PARSER_FLAG_FOUND_VALUE_START 256
-#define CSON_PARSER_FLAG_FOUND_STRING_START 512
 
 int32_t json_array_init(json_array_t *array, size_t size);
 int32_t json_string_free(json_string_t *string);
