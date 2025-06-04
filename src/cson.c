@@ -342,6 +342,176 @@ int32_t json_array_move_value(json_array_t *arr, const json_value_t *const val) 
 	return 0;
 }
 
+int32_t json_string_cmp(const json_string_t *const str1, const json_string_t *const str2, int *res) {
+	if (!str1 || !str2 || !res) return CSON_ERR_NULL_PTR;
+	if (str1 == str2 || str1->buf == str2->buf) {
+		*res = 0;
+		return 0;
+	}
+	if (str1->buf && !str2->buf) {
+		*res = 1;
+		return 0;
+	}
+	if (!str1->buf && str2->buf) {
+		*res = -1;
+		return 0;
+	}
+	int cmp = strncmp(str1, str2, str1->length);
+	if (cmp) {
+		*res = cmp;
+		return 0;
+	}
+	*res = str1->length - str2->length;
+	return 0;
+}
+
+int32_t json_string_cmp_str(const json_string_t *const str, const char *const buf, int *res) {
+	if (!str || !res) return CSON_ERR_NULL_PTR;
+	if (str->buf == buf) {
+		*res = 0;
+		return 0;
+	}
+	if (str->buf && !buf) {
+		*res = 1;
+		return 0;
+	}
+	if (!str->buf && buf) {
+		*res = -1;
+		return 0;
+	}
+	*res = strcmp(str->buf, buf);
+	return 0;
+}
+
+int32_t json_object_cmp(const json_object_t *const obj1, const json_object_t *const obj2, int *res) {
+	if (!obj1 || !obj2) return CSON_ERR_NULL_PTR;
+	*res = 0;
+	if (obj1->count != obj2->count) {
+		*res = 1;
+		return 0;
+	}
+	if (obj1->count == 0) {
+		*res = 0;
+		return 0;
+	}
+	if (obj1->count < 0) return CSON_ERR_INVALID_ARGUMENT;
+	if (obj1->buckets && !obj2->buckets) { 
+		*res = 1;
+		return 0;
+	}
+	if (!obj1->buckets && obj2->buckets) {
+		*res = 1;
+		return 0;
+	} 
+	if (obj1->keys && !obj2->keys) {
+		*res = 1;
+		return 0;
+	}
+	if (!obj1->buckets && obj2->buckets) {
+		*res = 1;
+		return 0;
+	}
+	json_object_t key_map = {};
+	int result = json_object_init(&key_map, obj1->count);
+	if (result) {
+		return result;
+	}
+	json_value_t dummy_value = {
+		.value_type = JSON_OBJECT_TYPE_NULL,
+		.null = (json_null_t){}
+	};
+	for (ssize_t i = 0; i < obj1->count; ++i) {
+		ssize_t h1 = json_key_hash(obj1->size, &obj1->keys[i]);
+		ssize_t h2 = json_key_hash(obj2->size, &obj2->keys[i]);
+		// try to append the key to the same object. The number of keys in the key 
+		// map will be equal to the count of the objects if all the keys are equal.
+		json_object_append_value(&key_map, &obj1->keys[i], &dummy_value);
+		json_object_append_value(&key_map, &obj2->keys[i], &dummy_value);
+		json_value_t *val1 = &obj1->buckets[h1], *val2 = &obj2->buckets[h2];
+		result = json_value_cmp(val1, val2, res);
+		if (result) {
+			json_object_free(&key_map);
+			return result;
+		}
+		if (*res) {
+			json_object_free(&key_map);
+			return 0;
+		}
+	}
+	*res = key_map.count != obj1->count;
+	json_object_free(&key_map);
+	return 0;
+}
+
+int32_t json_array_cmp(const json_array_t *const arr1, const json_array_t *const arr2, int *res) {
+	if (!arr1 || !arr2 || !res) return CSON_ERR_NULL_PTR;
+	*res = 0;
+	if (arr1->length != arr2->length) {
+		*res = 1;
+		return 0;
+	}
+	for (ssize_t i = 0; i < arr1->length; ++i) {
+		int result = json_value_cmp(&arr1->objects[i], &arr2->objects[i], res);
+		if (result) {
+			return result;
+		}
+		if (*res) {
+			return 0;
+		}
+	}
+	return 0;
+}
+
+int32_t json_value_cmp(const json_value_t *const val1, const json_value_t *const val2, int *res) {
+	if (!val1 || !val2 || !res) return CSON_ERR_NULL_PTR;
+	if (val1->value_type != val2->value_type) {
+		*res = 1;
+		return 0;
+	}
+	int result = 0;
+	switch (val1->value_type) {
+		case JSON_OBJECT_TYPE_OBJECT: {
+			result = json_object_cmp(&val1->object, &val2->object, res);
+			if (result) return result;
+		} break;
+		case JSON_OBJECT_TYPE_ARRAY: {
+			result = json_array_cmp(&val1->array, &val2->array, res);
+			if (result) return result;
+		} break;
+		case JSON_OBJECT_TYPE_STRING: {
+			result = json_string_cmp(&val1->string, &val2->string, res);
+			if (result) return result;
+		} break;
+		case JSON_OBJECT_TYPE_BOOL: {
+			*res = val1->boolean != val2->boolean;
+		} break;
+		case JSON_OBJECT_TYPE_NUMBER: {
+			*res = val1->number.num_type != val2->number.num_type;
+			if (*res) return 0;
+			switch (val1->number.num_type) {
+				case JSON_NUMBER_TYPE_F64: {
+					*res = (val1->number.f64 > val2->number.f64) - (val1->number.f64 < val2->number.f64);
+				} break;
+				case JSON_NUMBER_TYPE_I64: {
+					*res = (val1->number.i64 > val2->number.i64) - (val1->number.i64 < val2->number.i64);
+				} break;
+				case JSON_NUMBER_TYPE_U64: {
+					*res = (val1->number.u64 > val2->number.u64) - (val1->number.u64 < val2->number.u64);
+				} break;
+				default:
+					break;
+			}
+		} break;
+		case JSON_OBJECT_TYPE_NULL: {
+			*res = 0;
+		} break;
+		default: {
+			return CSON_ERR_INVALID_ARGUMENT;
+		} break;
+	}
+	return 0;
+}
+
 int32_t json_array_delete_index(json_array_t *arr, const ssize_t index) {
 	if (!arr || !arr->objects) return CSON_ERR_NULL_PTR;
 	if (index >= arr->length) return CSON_ERR_NOT_FOUND;
@@ -712,9 +882,3 @@ int32_t json_object_printf(const json_object_t *const obj, uint64_t indent, bool
 	return 0;
 }
 
-int32_t main(void) {
-	json_value_t value = {};
-	json_parse(&value, "tests/test.json");
-	printf("DONE\n");
-	return 0;
-}

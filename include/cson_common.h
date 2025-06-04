@@ -138,10 +138,17 @@ int32_t json_string_copy(json_string_t *restrict string, const json_string_t *co
 int32_t json_array_copy(json_array_t *const copy, const json_array_t *const obj);
 int32_t json_object_copy(json_object_t *const copy, const json_object_t *const obj);
 
+int32_t json_string_append_char(json_string_t *str, const char ch);
 int32_t json_array_append_value(json_array_t *arr, const json_value_t *const val);
 int32_t json_array_move_value(json_array_t *arr, const json_value_t *const val);
 int32_t json_object_append_value(json_object_t *const obj, const json_string_t *const key, const json_value_t *const value);
 int32_t json_object_move_value(json_object_t *const obj, const json_string_t *const key, json_value_t *const value);
+
+int32_t json_string_cmp(const json_string_t *const str1, const json_string_t *const str2, int *res);
+int32_t json_string_cmp_str(const json_string_t *const str1, const char *const buf, int *res);
+int32_t json_object_cmp(const json_object_t *const obj1, const json_object_t *const obj2, int *res);
+int32_t json_array_cmp(const json_array_t *const arr1, const json_array_t *const arr2, int *res);
+int32_t json_value_cmp(const json_value_t *const val1, const json_value_t *const val2, int *res);
 
 int32_t json_array_resize(json_array_t *array, ssize_t new_size);
 int32_t json_object_rehash(json_object_t *obj, ssize_t new_size);
