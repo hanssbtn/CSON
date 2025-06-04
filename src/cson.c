@@ -245,34 +245,64 @@ int32_t json_object_append_value(json_object_t *const obj, const json_string_t *
 			return res;
 		}
 	}
-	json_string_t key_copy = {};
-	res = json_string_copy(&key_copy, key);
-	if (res) {
-		fprintf(stderr, LOG_STRING"Failed to append object due to error %d\n", __FILE__, __LINE__, res);
-		return res;
-	}
 	json_value_t value_copy = {
 		.value_type = __JSON_OBJECT_TYPE_MAX
 	};
 	res = json_value_copy(&value_copy, value);
 	if (res) {
-		json_string_free(&key_copy);
 		fprintf(stderr, LOG_STRING"Failed to append object due to error %d\n", __FILE__, __LINE__, res);
 		return res;
 	}
 	curr->value = value_copy;
 	curr->next = NULL;
-	res = json_string_copy(&curr->key, &key_copy);
+	res = json_string_copy(&curr->key, key);
 	if (res) {
-		json_string_free(&key_copy);
 		json_value_free(&value_copy);
 		fprintf(stderr, LOG_STRING"Failed to append object due to error %d\n", __FILE__, __LINE__, res);
 		return res;
 	}
-	res = json_object_append_key(obj, &key_copy, false);
+	res = json_object_append_key(obj, key, true);
 	if (res) {
-		json_string_free(&key_copy);
 		json_value_free(&value_copy);
+		fprintf(stderr, LOG_STRING"Failed to append object due to error %d\n", __FILE__, __LINE__, res);
+	}
+	return res;
+}
+
+int32_t json_object_move_value(json_object_t *const obj, const json_string_t *const key, json_value_t *const value) {
+	if (!obj || !obj->buckets || !obj->keys || !key || !key->buf || !value) return CSON_ERR_NULL_PTR;
+	int res = 0;
+	size_t j = json_key_hash(obj->size, key);
+	json_bucket_t *curr = &obj->buckets[j], *next = obj->buckets[j].next;
+	if (curr->key.buf && strcmp(key->buf, curr->key.buf) == 0) {
+		printf("Found duplicate key \"%s\"\n", key->buf);
+		return CSON_ERR_ILLEGAL_OPERATION;
+	}
+	while (next) {
+		if (next->key.buf && strcmp(key->buf, next->key.buf) == 0) {
+			printf("Found duplicate key \"%s\"\n", key->buf);
+			return CSON_ERR_ILLEGAL_OPERATION;
+		}
+		printf("curr: 0x%p, next: 0x%p\n", (void*)curr, (void*)next);
+		curr = next;
+		next = next->next;
+	}
+	if (obj->count >= obj->size) {
+		res = json_object_rehash(obj, obj->size * 2);
+		if (res) {
+			fprintf(stderr, LOG_STRING"Failed to rehash object due to error %d\n", __FILE__, __LINE__, res);
+			return res;
+		}
+	}
+	curr->value = *value;
+	curr->next = NULL;
+	res = json_string_copy(&curr->key, key);
+	if (res) {
+		fprintf(stderr, LOG_STRING"Failed to append object due to error %d\n", __FILE__, __LINE__, res);
+		return res;
+	}
+	res = json_object_append_key(obj, key, false);
+	if (res) {
 		fprintf(stderr, LOG_STRING"Failed to append object due to error %d\n", __FILE__, __LINE__, res);
 	}
 	return res;
@@ -296,6 +326,19 @@ int32_t json_array_append_value(json_array_t *arr, const json_value_t *const val
 		return res;
 	}
 	arr->objects[arr->length++] = val_copy;
+	return 0;
+}
+
+int32_t json_array_move_value(json_array_t *arr, const json_value_t *const val) {
+	if (!arr || !val) return CSON_ERR_NULL_PTR;
+	if (arr->length >= arr->size) {
+		int res = json_array_resize(arr, arr->size * 2);
+		if (res) {
+			fprintf(stderr, LOG_STRING"Failed to append value to array with length %lld and size %lld byte(s) due to error %d\n", __FILE__, __LINE__, arr->length, arr->size * sizeof(json_value_t), res);
+			return res;
+		}
+	}
+	arr->objects[arr->length++] = *val;
 	return 0;
 }
 

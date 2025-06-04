@@ -139,7 +139,9 @@ int32_t json_array_copy(json_array_t *const copy, const json_array_t *const obj)
 int32_t json_object_copy(json_object_t *const copy, const json_object_t *const obj);
 
 int32_t json_array_append_value(json_array_t *arr, const json_value_t *const val);
+int32_t json_array_move_value(json_array_t *arr, const json_value_t *const val);
 int32_t json_object_append_value(json_object_t *const obj, const json_string_t *const key, const json_value_t *const value);
+int32_t json_object_move_value(json_object_t *const obj, const json_string_t *const key, json_value_t *const value);
 
 int32_t json_array_resize(json_array_t *array, ssize_t new_size);
 int32_t json_object_rehash(json_object_t *obj, ssize_t new_size);

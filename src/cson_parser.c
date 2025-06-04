@@ -486,9 +486,7 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 					}
 				} break;
 				case ':': {
-					
-				} break;
-				case '{': {
+					printf("Found \'%c\' at index %lld\n", ch, parser->pointer);
 					switch (current_state) {
 						case JSON_PARSER_STATE_KEY: {
 							json_string_t *str = &parser->temporary_keys[parser->key_count - 1];
@@ -501,47 +499,251 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 							if (res) return res;
 						} break;
 						case JSON_PARSER_STATE_OBJECT: {
-							if (parser->temporary_keys[parser->key_count - 1].length > 0) {
+							if (parser->parser_flag & CSON_PARSER_FLAG_FOUND_KEY_END) {
+								parser->parser_flag = (parser->parser_flag & ~CSON_PARSER_FLAG_FOUND_KEY_END) | CSON_PARSER_FLAG_FOUND_VALUE_START;
+								break;
+							}
+							if (parser->parser_flag & CSON_PARSER_FLAG_FOUND_VALUE_START) {
+								fprintf(stderr, LOG_STRING"Found duplicate \':\' character at index %lld\n", __FILE__, __LINE__, parser->pointer);
+								return JSON_PARSER_STATE_INVALID_CHARACTER;
+							}
+						} break;
+						default: {
+							fprintf(stderr, LOG_STRING"Found illegal \':\' character at index %lld\n", __FILE__, __LINE__, parser->pointer);
+							return JSON_PARSER_STATE_INVALID_CHARACTER;
+						} break;
+					}
+				} break;
+				case '{': {
+					printf("Found \'%c\' at index %lld\n", ch, parser->pointer);
+					switch (current_state) {
+						case JSON_PARSER_STATE_KEY: {
+							json_string_t *str = &parser->temporary_keys[parser->key_count - 1];
+							res = json_string_append_char(str, ch);
+							if (res) return res;
+						} break;
+						case JSON_PARSER_STATE_STRING: {
+							json_string_t *str = &parser->temporaries.objects[parser->temporaries.length - 1].string;
+							res = json_string_append_char(str, ch);
+							if (res) return res;
+						} break;
+						case JSON_PARSER_STATE_OBJECT: {
+							if (parser->parser_flag & CSON_PARSER_FLAG_FOUND_VALUE_START) {
 								json_value_t val = {};
 								res = json_parser_push_temporary(parser, &val);
 								if (res) {
 									fprintf(stderr, LOG_STRING"Failed to push temporary into parser due to error %d\n", __FILE__, __LINE__, res);
 									return res;
 								}
+								break;
 							} else {
 								fprintf(stderr, LOG_STRING"Found \'{\' at index %lld without key\n", __FILE__, __LINE__, parser->pointer);
 								return JSON_PARSER_STATE_INVALID_CHARACTER;
 							}
 						} break;
 						case JSON_PARSER_STATE_ARRAY: {
-							
+							json_value_t val = {};
+							res = json_parser_push_temporary(parser, &val);
+							if (res) {
+								fprintf(stderr, LOG_STRING"Failed to push temporary into parser due to error %d\n", __FILE__, __LINE__, res);
+								return res;
+							}
+							break;
 						} break;
 						default: {
+							fprintf(stderr, LOG_STRING"Found invalid character %c at index %lld\n", __FILE__, __LINE__, ch, parser->pointer);
 							return JSON_PARSER_STATE_INVALID_CHARACTER;
 						}
 					}
 				} break;
 				case '}': {
-				
+					printf("Found \'%c\' at index %lld\n", ch, parser->pointer);
+					switch (current_state) {
+						case JSON_PARSER_STATE_KEY: {
+							json_string_t *str = &parser->temporary_keys[parser->key_count - 1];
+							res = json_string_append_char(str, ch);
+							if (res) return res;
+						} break;
+						case JSON_PARSER_STATE_STRING: {
+							json_string_t *str = &parser->temporaries.objects[parser->temporaries.length - 1].string;
+							res = json_string_append_char(str, ch);
+							if (res) return res;
+						} break;
+						case JSON_PARSER_STATE_OBJECT: {
+							ssize_t index, new_key_count;
+							for (index = parser->temporaries.length - 1, new_key_count = parser->key_count - 1; index >= 0 && new_key_count >= 0; --index, --new_key_count) {
+								if (parser->temporaries.objects[index].value_type != JSON_OBJECT_TYPE_OBJECT) continue;
+								json_object_t *arr = parser->temporaries.objects[index].object;
+								assert(new_key_count >= 0);
+								for (ssize_t j = index + 1, k = new_key_count; j < parser->temporaries.length && k < parser->key_count; ++j, ++k) {
+									printf("moving key to object\n");
+									json_string_printf(&parser->temporary_keys[k]);
+									printf("moving value to object\n");
+									json_value_printf(&parser->temporaries.objects[j], 0, true);
+									json_object_move_value(arr, &parser->temporary_keys[k], &parser->temporaries.objects[j]);
+									parser->temporary_keys[k] = (json_string_t){};
+									parser->temporaries.objects[j] = (json_value_t){};
+								}
+								printf("new length: %lld\n", index);
+								parser->temporaries.length = index;
+								parser->key_count = new_key_count;
+								break;
+							}
+							if (index < 0 || new_key_count < 0) {
+								fprintf(stderr, LOG_STRING"Failed to find array\n", __FILE__, __LINE__);
+								exit(-1);
+							}
+						} break;
+						default: {
+							fprintf(stderr, LOG_STRING"Found invalid character %c at index %lld\n", __FILE__, __LINE__, ch, parser->pointer);
+							return JSON_PARSER_STATE_INVALID_CHARACTER;
+						}
+					}
 				} break;
 				case '[': {
+					printf("Found \'%c\' at index %lld\n", ch, parser->pointer);
+					switch (current_state) {
+						case JSON_PARSER_STATE_KEY: {
+							json_string_t *str = &parser->temporary_keys[parser->key_count - 1];
+							res = json_string_append_char(str, ch);
+							if (res) return res;
+						} break;
+						case JSON_PARSER_STATE_STRING: {
+							json_string_t *str = &parser->temporaries.objects[parser->temporaries.length - 1].string;
+							res = json_string_append_char(str, ch);
+							if (res) return res;
+						} break;
+						case JSON_PARSER_STATE_OBJECT: {
+							if (parser->parser_flag & CSON_PARSER_FLAG_FOUND_VALUE_START) {
+								json_value_t val = {
+									.value_type = JSON_OBJECT_TYPE_ARRAY
+								};
+								res = json_parser_push_temporary(parser, &val);
+								if (res) {
+									fprintf(stderr, LOG_STRING"Failed to push temporary into parser due to error %d\n", __FILE__, __LINE__, res);
+									return res;
+								}
+								break;
+							} else {
+								fprintf(stderr, LOG_STRING"Found \'[\' at index %lld without key\n", __FILE__, __LINE__, parser->pointer);
+								return JSON_PARSER_STATE_INVALID_CHARACTER;
+							}
+						} break;
+						case JSON_PARSER_STATE_ARRAY: {
+							json_value_t val = {
+								.value_type = JSON_OBJECT_TYPE_ARRAY
+							};
+							res = json_parser_push_temporary(parser, &val);
+							if (res) {
+								fprintf(stderr, LOG_STRING"Failed to push temporary into parser due to error %d\n", __FILE__, __LINE__, res);
+								return res;
+							}
+							break;
+						} break;
+						default: {
+							fprintf(stderr, LOG_STRING"Found invalid character %c at index %lld\n", __FILE__, __LINE__, ch, parser->pointer);
+							return JSON_PARSER_STATE_INVALID_CHARACTER;
+						}
+					}
 				} break;
 				case ']': {
-					
+					printf("Found \'%c\' at index %lld\n", ch, parser->pointer);
+					switch (current_state) {
+						case JSON_PARSER_STATE_KEY: {
+							json_string_t *str = &parser->temporary_keys[parser->key_count - 1];
+							res = json_string_append_char(str, ch);
+							if (res) return res;
+						} break;
+						case JSON_PARSER_STATE_STRING: {
+							json_string_t *str = &parser->temporaries.objects[parser->temporaries.length - 1].string;
+							res = json_string_append_char(str, ch);
+							if (res) return res;
+						} break;
+						case JSON_PARSER_STATE_ARRAY: {
+							ssize_t index;
+							for (index = parser->temporaries.length - 1; index >= 0; --index) {
+								if (parser->temporaries.objects[index].value_type != JSON_OBJECT_TYPE_ARRAY) continue;
+								json_array_t *arr = parser->temporaries.objects[index].array;
+								for (ssize_t j = index + 1; j < parser->temporaries.length; ++j) {
+									printf("moving value to array\n");
+									json_value_printf(&parser->temporaries.objects[j], 0, true);
+									json_array_move_value(arr, &parser->temporaries.objects[j]);
+									parser->temporaries.objects[j] = (json_value_t){};
+								}
+								printf("new length: %lld\n", index);
+								parser->temporaries.length = index;
+								break;
+							}
+							if (index < 0) {
+								fprintf(stderr, LOG_STRING"Failed to find array\n", __FILE__, __LINE__);
+								exit(-1);
+							}
+						} break;
+						default: {
+							fprintf(stderr, LOG_STRING"Found invalid character %c at index %lld\n", __FILE__, __LINE__, ch, parser->pointer);
+							return JSON_PARSER_STATE_INVALID_CHARACTER;
+						}
+					}
 				} break;
 				case ',': {
-				
+					printf("Found \'%c\' at index %lld\n", ch, parser->pointer);
+					switch (current_state) {
+						case JSON_PARSER_STATE_KEY: {
+							json_string_t *str = &parser->temporary_keys[parser->key_count - 1];
+							res = json_string_append_char(str, ch);
+							if (res) return res;
+						} break;
+						case JSON_PARSER_STATE_STRING: {
+							json_string_t *str = &parser->temporaries.objects[parser->temporaries.length - 1].string;
+							res = json_string_append_char(str, ch);
+							if (res) return res;
+						} break;
+						case JSON_PARSER_STATE_OBJECT: {
+							
+						} break;
+						case JSON_PARSER_STATE_ARRAY: {
+							
+						} break;
+						default: {
+							fprintf(stderr, LOG_STRING"Found invalid character %c at index %lld\n", __FILE__, __LINE__, ch, parser->pointer);
+							return JSON_PARSER_STATE_INVALID_CHARACTER;
+						}
+					}
 				} break;
 				case '\\': {
 					switch (current_state) {
-						case JSON_PARSER_STATE_STRING: 
+						case JSON_PARSER_STATE_ESCAPE: {
+							json_parser_pop_state(parser, &current_state);
+							if (res) {
+								fprintf(stderr, LOG_STRING"Failed to pop state due to error %d\n", __FILE__, __LINE__, res);
+								return res;
+							}
+							switch (current_state) {
+								case JSON_PARSER_STATE_STRING: {
+									json_string_t *str = &parser->temporaries.objects[parser->temporaries.length - 1].string;
+									res = json_string_append_char(str, ch);
+									if (res) return res;
+								} break;
+								case JSON_PARSER_STATE_KEY: {
+									json_string_t *str = &parser->temporaries.objects[parser->temporaries.length - 1].string;
+									res = json_string_append_char(str, ch);
+									if (res) return res;
+								} break;
+								default: {
+									fprintf(stderr, LOG_STRING"Unreachable state reached.\n", __FILE__, __LINE__);
+									exit(-1);
+								} break;
+							}
+						} break;
+						case JSON_PARSER_STATE_STRING:  
 						case JSON_PARSER_STATE_KEY: {
 							printf("Found \'\\\' at index %lld, entering escape mode\n", parser->pointer);
-							res = json_parser_push_state(parser, JSON_PARSER_STATE_ESCAPE);
+							res = json_parser_push_state(parser, current_state);
 							if (res) {
 								fprintf(stderr, LOG_STRING"Failed to push state into parser due to error %d\n", __FILE__, __LINE__, res);
 								return res;
 							}
+							current_state = JSON_PARSER_STATE_ESCAPE;
 						} break;
 						default: {
 							fprintf(stderr, LOG_STRING"Found invalid escape character at index %lld\n", __FILE__, __LINE__, parser->pointer);
@@ -550,22 +752,97 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 					}
 				} break;
 				case ' ': {
-					
+					switch (current_state) {
+						case JSON_PARSER_STATE_KEY: {
+							json_string_t *str = &parser->temporary_keys[parser->key_count - 1];
+							res = json_string_append_char(str, ch);
+							if (res) return res;
+						} break;
+						case JSON_PARSER_STATE_STRING: {
+							json_string_t *str = &parser->temporaries.objects[parser->temporaries.length - 1].string;
+							res = json_string_append_char(str, ch);
+							if (res) return res;
+						} break;
+						case JSON_PARSER_STATE_IDLE: {
+							
+						
+						} break;
+						case JSON_PARSER_STATE_OBJECT: {} break;
+						case JSON_PARSER_STATE_ARRAY: {} break;
+						default: {
+							fprintf(stderr, LOG_STRING"Found illegal \' \' character at index %lld\n", __FILE__, __LINE__, parser->pointer);
+							return JSON_PARSER_STATE_INVALID_CHARACTER;
+						} break;
+					}
 				} break;
 				case '\r': {
-					
+					switch (current_state) {
+						case JSON_PARSER_STATE_KEY: {
+							json_string_t *str = &parser->temporary_keys[parser->key_count - 1];
+							res = json_string_append_char(str, ch);
+							if (res) return res;
+						} break;
+						case JSON_PARSER_STATE_STRING: {
+							json_string_t *str = &parser->temporaries.objects[parser->temporaries.length - 1].string;
+							res = json_string_append_char(str, ch);
+							if (res) return res;
+						} break;
+						case JSON_PARSER_STATE_IDLE: {} break;
+						case JSON_PARSER_STATE_OBJECT: {} break;
+						case JSON_PARSER_STATE_ARRAY: {} break;
+						default: {
+							fprintf(stderr, LOG_STRING"Found illegal \' \' character at index %lld\n", __FILE__, __LINE__, parser->pointer);
+							return JSON_PARSER_STATE_INVALID_CHARACTER;
+						} break;
+					}
 				} break;
 				case '\t': {
-					
+					switch (current_state) {
+						case JSON_PARSER_STATE_KEY: {
+							json_string_t *str = &parser->temporary_keys[parser->key_count - 1];
+							res = json_string_append_char(str, ch);
+							if (res) return res;
+						} break;
+						case JSON_PARSER_STATE_STRING: {
+							json_string_t *str = &parser->temporaries.objects[parser->temporaries.length - 1].string;
+							res = json_string_append_char(str, ch);
+							if (res) return res;
+						} break;
+						case JSON_PARSER_STATE_IDLE: {} break;
+						case JSON_PARSER_STATE_OBJECT: {} break;
+						case JSON_PARSER_STATE_ARRAY: {} break;
+						default: {
+							fprintf(stderr, LOG_STRING"Found illegal \' \' character at index %lld\n", __FILE__, __LINE__, parser->pointer);
+							return JSON_PARSER_STATE_INVALID_CHARACTER;
+						} break;
+					}
 				} break;
 				case '\0': {
 					
 				} break;
 				case '\n': {
-					
+					switch (current_state) {
+						case JSON_PARSER_STATE_KEY: {
+							json_string_t *str = &parser->temporary_keys[parser->key_count - 1];
+							res = json_string_append_char(str, ch);
+							if (res) return res;
+						} break;
+						case JSON_PARSER_STATE_STRING: {
+							json_string_t *str = &parser->temporaries.objects[parser->temporaries.length - 1].string;
+							res = json_string_append_char(str, ch);
+							if (res) return res;
+						} break;
+						case JSON_PARSER_STATE_IDLE: {} break;
+						case JSON_PARSER_STATE_OBJECT: {} break;
+						case JSON_PARSER_STATE_ARRAY: {} break;
+						default: {
+							fprintf(stderr, LOG_STRING"Found illegal \' \' character at index %lld\n", __FILE__, __LINE__, parser->pointer);
+							return JSON_PARSER_STATE_INVALID_CHARACTER;
+						} break;
+					}
 				} break;
 				default: {
-				
+					
 				} break;
 			}
 		} 
