@@ -203,7 +203,7 @@ int32_t json_parser_handle_char(json_parser_t *parser, json_parser_state_t *curr
 	}
 }
 
-int32_t json_parser_init(json_parser_t *parser) {
+int32_t json_parser_init(json_parser_t *const parser) {
 	if (!parser) return CSON_ERR_NULL_PTR;
 	parser->states = debug_malloc(8 * sizeof(json_parser_state_t));
 	if (!parser->states) return CSON_ERR_ALLOC;

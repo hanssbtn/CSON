@@ -3,7 +3,7 @@
 
 #define BUFFER_SIZE 8192
 
-#include "cson.h"
+#include "cson_common.h"
 
 #define CSON_PARSER_FLAG_FOUND_SIGN 1
 #define CSON_PARSER_FLAG_FOUND_PERIOD 2
@@ -45,5 +45,7 @@ typedef struct {
 	json_array_t temporaries;
 	char buf[BUFFER_SIZE];
 } json_parser_t;
+
+int32_t json_parser_init(json_parser_t *const parser);
 
 #endif // CSON_PARSER_H__
