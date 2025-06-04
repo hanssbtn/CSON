@@ -1,0 +1,5 @@
+.vscode
+objs
+*.exe
+*.txt
+*.cpp

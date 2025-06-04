@@ -1,0 +1,6 @@
+{
+	"he\"llo": "world",
+	"world": "hello\n",
+	"nul":  101,
+	"":""
+}
