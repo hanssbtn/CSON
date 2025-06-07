@@ -16,6 +16,7 @@ int32_t json_parser_push_key(json_parser_t *parser) {
 		fprintf(stderr, LOG_STRING"Failed to allocate memory for new key\n", __FILE__, __LINE__);
 		return CSON_ERR_ALLOC;
 	}
+	printf("parser->key_count: %lld, size: %lld\n", parser->key_count, parser->key_size);
 	parser->temporary_keys[parser->key_count] = (json_string_t){
 		.buf = tmp,
 		.size = 8
@@ -443,6 +444,29 @@ int32_t convert_f64(json_parser_t *parser) {
 	return 0;
 }
 
+int32_t json_parser_push_depth(json_parser_t *const parser) {
+	if (parser->depth_count == parser->depth_size) {
+		ssize_t nsz = parser->depth_size * 2;
+		ssize_t *tmp = realloc(parser->depth, nsz * sizeof(ssize_t));
+		if (!tmp) {
+			fprintf(stderr, LOG_STRING"Failed to allocate memory for depth\n", __FILE__, __LINE__);
+			return CSON_ERR_ALLOC;
+		}
+		parser->depth = tmp;
+		parser->depth_size =  nsz;
+	}
+	parser->depth[parser->depth_count] = parser->temporaries.length;
+	parser->depth_count++;
+	return 0;
+}
+
+int32_t json_parser_pop_depth(json_parser_t *const parser, ssize_t *ptr) {
+	if (parser->depth_count <= 0) return CSON_ERR_ILLEGAL_OPERATION;
+	if (ptr) *ptr = parser->depth[parser->depth_count - 1];
+	parser->depth_count--;
+	return 0;
+}
+
 int32_t json_parser_init(json_parser_t *const parser) {
 	if (!parser) return CSON_ERR_NULL_PTR;
 	parser->states = debug_malloc(8 * sizeof(json_parser_state_t));
@@ -458,10 +482,21 @@ int32_t json_parser_init(json_parser_t *const parser) {
 		debug_free(parser->temporary_keys);
 		return res;
 	}
+	parser->depth = debug_malloc(sizeof(ssize_t) * 8);
+	if (!parser->depth) {
+		debug_free(parser->states);
+		debug_free(parser->temporary_keys);
+		debug_free(parser->temporaries.objects);
+		return res;
+	}
+	parser->depth_count = 0;
+	parser->depth_size = 8;
 	parser->state_size = 8;
 	parser->state_count = 0;
 	parser->key_size = 8;
 	parser->key_count = 0;
+	parser->found_number_after_period;
+	parser->found_number_after_exponent;
 	parser->exponent = 0;
 	memset(parser->buf, 0, BUFFER_SIZE);
 	parser->parser_flag = 0;
@@ -828,6 +863,15 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 								if (res) {
 									return res;
 								}
+								res = json_parser_push_depth(parser);
+								if (res) {
+									return res;
+								}
+								printf("Depth:\n");
+								for (ssize_t j = 0; j < parser->depth_count; ++j) {
+									printf("%lld ", parser->depth[j]);
+								}
+								printf("\n");
 								json_value_t val = {
 									.object = object
 								};
@@ -841,6 +885,7 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 								if (res) {
 									return res;
 								}
+								
 								current_state = CSON_PARSER_STATE_OBJECT;
 								break;
 							} else {
@@ -849,6 +894,10 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 							}
 						} break;
 						case CSON_PARSER_STATE_ARRAY: {
+							res = json_parser_push_depth(parser);
+							if (res) {
+								return res;
+							}
 							json_array_t *array = malloc(sizeof(json_array_t));
 							if (!array) {
 								fprintf(stderr, LOG_STRING"Failed to initialize first array\n", __FILE__, __LINE__);
@@ -900,40 +949,42 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 						} break;
 						case CSON_PARSER_STATE_OBJECT: 
 						case CSON_PARSER_STATE_EXPECT_END_OR_COMMA: {
-							ssize_t index, new_key_count;
+							ssize_t index = -1;
 							printf("temporaries:\n");
 							for (ssize_t i = 0; i < parser->temporaries.length; ++i) {
 								printf("i: %lld\n", i);
-								json_value_printf(&parser->temporaries.objects[i],0, true);
+								json_value_printf(&parser->temporaries.objects[i], 0, true);
 								printf("\n");
 							}
-							for (index = parser->temporaries.length - 1, new_key_count = parser->key_count - 1; index >= 0 && new_key_count >= 0; --index, --new_key_count) {
-								printf("index: %lld\n type: %d\n", index, parser->temporaries.objects[index].value_type);
-								if (parser->temporaries.objects[index].value_type != JSON_OBJECT_TYPE_OBJECT) continue;
-								json_object_t *arr = parser->temporaries.objects[index].object;
-								assert(new_key_count >= 0);
-								for (ssize_t j = index + 1, k = new_key_count + 1; j < parser->temporaries.length && k < parser->key_count; ++j, ++k) {
+							printf("Depth:\n");
+							for (ssize_t j = 0; j < parser->depth_count; ++j) {
+								printf("%lld ", parser->depth[j]);
+							}
+							printf("\n");
+							json_parser_pop_depth(parser, &index);
+							if (index >= 0) {
+								printf("index: %lld, type: %d\n", index, parser->temporaries.objects[index].value_type);
+								json_object_t *obj = parser->temporaries.objects[index].object;
+								for (ssize_t j = index + 1; j < parser->temporaries.length; ++j) {
 									printf("moving key to object\n");
-									json_string_printf(&parser->temporary_keys[k]);
-									printf("moving value to object\n");
+									json_string_printf(&parser->temporary_keys[j]);
+									printf("\nmoving value to object\n");
 									json_value_printf(&parser->temporaries.objects[j], 0, true);
-									json_object_move_value(arr, &parser->temporary_keys[k], &parser->temporaries.objects[j]);
-									parser->temporary_keys[k] = (json_string_t){};
+									printf("\n");
+									json_object_move_value(obj, &parser->temporary_keys[j], &parser->temporaries.objects[j]);
+									parser->temporary_keys[j] = (json_string_t){};
 									parser->temporaries.objects[j] = (json_value_t){};
 								}
 								printf("new length: %lld\n", index);
 								parser->temporaries.length = index + 1;
-								parser->key_count = new_key_count + 1;
-								break;
-							}
-							if ((index < 0 || new_key_count < 0)) {
+								parser->key_count = index + 1;
+							} else {
 								if (parser->value.value_type != JSON_OBJECT_TYPE_OBJECT) {
 									fprintf(stderr, LOG_STRING"Failed to find object\n", __FILE__, __LINE__);
 									exit(-1);
 								} else {
 									index++;
-									new_key_count++;
-									for (ssize_t j = index, k = new_key_count; j < parser->temporaries.length && k < parser->key_count; ++j, ++k) {
+									for (ssize_t j = index, k = index; j < parser->temporaries.length && k < parser->key_count; ++j, ++k) {
 										printf("moving key to object\n");
 										json_string_printf(&parser->temporary_keys[k]);
 										printf("\n");
@@ -946,7 +997,7 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 									}
 									printf("new length: %lld\n", index);
 									parser->temporaries.length = index;
-									parser->key_count = new_key_count;
+									parser->key_count = index;
 									printf("object:\n");
 									json_object_printf(parser->value.object, 0, true);
 									printf("\n");
@@ -981,7 +1032,6 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 								return res;
 							}
 							current_state = CSON_PARSER_STATE_ARRAY;
-							parser->value = val;
 						} break;
 						case CSON_PARSER_STATE_KEY: {
 							json_string_t *str = &parser->temporary_keys[parser->key_count - 1];
@@ -995,6 +1045,10 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 						} break;
 						case CSON_PARSER_STATE_OBJECT: {
 							if (parser->parser_flag & CSON_PARSER_FLAG_FOUND_VALUE_START) {
+								res = json_parser_push_depth(parser);
+								if (res) {
+									return res;
+								}
 								json_array_t *array = malloc(sizeof(json_array_t));
 								res = json_array_init(array, 8);
 								if (res) return res;
@@ -1053,9 +1107,20 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 						} break;
 						case CSON_PARSER_STATE_ARRAY:
 						case CSON_PARSER_STATE_EXPECT_END_OR_COMMA: {
-							ssize_t index;
-							for (index = parser->temporaries.length - 1; index >= 0; --index) {
-								if (parser->temporaries.objects[index].value_type != JSON_OBJECT_TYPE_ARRAY) continue;
+							ssize_t index = -1;
+							printf("temporaries:\n");
+							for (ssize_t i = 0; i < parser->temporaries.length; ++i) {
+								printf("i: %lld\n", i);
+								json_value_printf(&parser->temporaries.objects[i], 0, true);
+								printf("\n");
+							}
+							printf("Depth:\n");
+							for (ssize_t j = 0; j < parser->depth_count; ++j) {
+								printf("%lld ", parser->depth[j]);
+							}
+							printf("\n");
+							json_parser_pop_depth(parser, &index);
+							if (index >= 0) {
 								json_array_t *arr = parser->temporaries.objects[index].array;
 								for (ssize_t j = index + 1; j < parser->temporaries.length; ++j) {
 									printf("moving value to array\n");
@@ -1069,8 +1134,7 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 								json_array_printf(arr, 0);
 								printf("\n");
 								break;
-							}
-							if (index < 0) {
+							} else {
 								if (parser->value.value_type != JSON_OBJECT_TYPE_ARRAY) {
 									fprintf(stderr, LOG_STRING"Failed to find ARRAY\n", __FILE__, __LINE__);
 									exit(-1);
@@ -1375,3 +1439,10 @@ int32_t json_parse(json_parser_t *const parser, json_value_t *value, const char 
 	return res;
 }
 
+int32_t json_parser_free(json_parser_t *parser){
+	debug_free(parser->depth);
+	debug_free(parser->temporary_keys);
+	debug_free(parser->states);
+	json_array_free(&parser->temporaries);
+	*parser = (json_parser_t){};
+}

@@ -36,16 +36,18 @@ typedef enum {
 } __attribute__((packed)) json_parser_state_t; 
 
 typedef struct {
-	ssize_t state_count, state_size;
-	ssize_t key_count, key_size;
 	// For parsing doubles
 	int16_t exponent;
 	bool found_number_after_period;
 	bool found_number_after_exponent;
-	json_parser_state_t *states;
 	json_value_t value;
 	int16_t parser_flag;
 	ssize_t pointer;
+	ssize_t depth_count, depth_size;
+	ssize_t *depth;
+	ssize_t state_count, state_size;
+	json_parser_state_t *states;
+	ssize_t key_count, key_size;
 	json_string_t *temporary_keys;
 	json_array_t temporaries;
 	char buf[BUFFER_SIZE];

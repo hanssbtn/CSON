@@ -1,12 +1,23 @@
 {
-	"he\"llo": "world",
-	"world": "hello\n",
-	"null": null,
-	"":"",
-	"num1":  101.1e0,
-	"helloworld":  101.1,
-	"num3":  1e-10,
 	"obj": {
-		"nested": "value"
+		"nested": "value",
+		"nested_squared": {
+			"nested": "value"
+		},
+		"nested_squared2": {
+			"nested": "value"
+		}
+	},
+	"obj2": {
+		"nested": "value",
+		"nested_squared": {
+			"nested": "value"
+		},
+		"nested_squared2": {
+			"nested": "value",
+			"nested_squared3": {
+				"nested": "value"
+			}
+		}
 	}
 }

@@ -930,7 +930,7 @@ int32_t json_object_printf(const json_object_t *const obj, uint64_t indent, bool
 			// printf("\nvalue:\n");
 			// json_value_printf(&curr->value, 0, true);
 			// printf("\n");
-			while (curr && strncmp(curr->key.buf, obj->keys[i].buf, max(curr->key.length, obj->keys[i].length))) {
+			while (curr->key.buf && strncmp(curr->key.buf, obj->keys[i].buf, max(curr->key.length, obj->keys[i].length))) {
 				curr = curr->next;
 			}
 			if (!curr) {
@@ -950,7 +950,7 @@ int32_t json_object_printf(const json_object_t *const obj, uint64_t indent, bool
 			printf("Cannot hash key \"%s\"\n", obj->keys[i].buf);
 		} else {
 			json_bucket_t *curr = &obj->buckets[j];
-			while (curr && strncmp(curr->key.buf, obj->keys[i].buf, max(curr->key.length, obj->keys[i].length))) {
+			while (curr->key.buf && strncmp(curr->key.buf, obj->keys[i].buf, max(curr->key.length, obj->keys[i].length))) {
 				curr = curr->next;
 			} 
 			if (!curr) {
