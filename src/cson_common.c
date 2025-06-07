@@ -49,8 +49,9 @@ int32_t json_array_init(json_array_t *array, size_t size) {
 
 int32_t json_string_copy(json_string_t *restrict string, const json_string_t *const restrict original) {
 	if (!string || !original) return CSON_ERR_NULL_PTR;
-	printf("Copying string with length %lld and size %lld\n", original->size, original->length);
-	if (original->buf) printf("original: \"%s\"\n", original->buf);
+	printf("Copying string with length %lld and size %lld\n", original->length, original->size);
+	json_string_printf(original);
+	printf("\n");
 	string->size = original->size > 0 ? original->size : 8;
 	if (original->size == original->length) string->size++;
 	string->buf = debug_malloc(string->size * sizeof(char));
@@ -62,7 +63,7 @@ int32_t json_string_copy(json_string_t *restrict string, const json_string_t *co
 	ssize_t length = original->length > 0 ? original->length : 0;
 	memcpy(string->buf, original->buf, length);
 	string->buf[length] = '\0';
-	printf("Result: %s\n", string->buf);
+	printf("Result: \"%s\"\n", string->buf);
 	string->length = length;
 	return 0;
 }
@@ -134,6 +135,9 @@ int32_t json_object_append_key(json_object_t *const obj, const json_string_t *co
 	} else {
 		obj->keys[obj->count] = *key;
 	}
+	printf("appended key:\n");
+	json_string_printf(&obj->keys[obj->count]);
+	printf("\n");
 	obj->count++;
 	return 0;
 }
@@ -295,6 +299,9 @@ int32_t json_object_move_value(json_object_t *const obj, const json_string_t *co
 		}
 	}
 	curr->value = *value;
+	printf("curr->value:\n");
+	json_value_printf(&curr->value, 0,true);
+	printf("\n");
 	curr->next = NULL;
 	res = json_string_copy(&curr->key, key);
 	if (res) {
@@ -356,7 +363,7 @@ int32_t json_string_cmp(const json_string_t *const str1, const json_string_t *co
 		*res = -1;
 		return 0;
 	}
-	int cmp = strncmp(str1, str2, str1->length);
+	int cmp = strncmp(str1->buf, str2->buf, str1->length);
 	if (cmp) {
 		*res = cmp;
 		return 0;
@@ -427,7 +434,7 @@ int32_t json_object_cmp(const json_object_t *const obj1, const json_object_t *co
 		// map will be equal to the count of the objects if all the keys are equal.
 		json_object_append_value(&key_map, &obj1->keys[i], &dummy_value);
 		json_object_append_value(&key_map, &obj2->keys[i], &dummy_value);
-		json_value_t *val1 = &obj1->buckets[h1], *val2 = &obj2->buckets[h2];
+		json_value_t *val1 = &obj1->buckets[h1].value, *val2 = &obj2->buckets[h2].value;
 		result = json_value_cmp(val1, val2, res);
 		if (result) {
 			json_object_free(&key_map);
@@ -471,11 +478,11 @@ int32_t json_value_cmp(const json_value_t *const val1, const json_value_t *const
 	int result = 0;
 	switch (val1->value_type) {
 		case JSON_OBJECT_TYPE_OBJECT: {
-			result = json_object_cmp(&val1->object, &val2->object, res);
+			result = json_object_cmp(val1->object, val2->object, res);
 			if (result) return result;
 		} break;
 		case JSON_OBJECT_TYPE_ARRAY: {
-			result = json_array_cmp(&val1->array, &val2->array, res);
+			result = json_array_cmp(val1->array, val2->array, res);
 			if (result) return result;
 		} break;
 		case JSON_OBJECT_TYPE_STRING: {
@@ -512,10 +519,11 @@ int32_t json_value_cmp(const json_value_t *const val1, const json_value_t *const
 	return 0;
 }
 
-int32_t json_array_delete_index(json_array_t *arr, const ssize_t index) {
+int32_t json_array_delete_index(json_array_t *arr, const ssize_t index, json_value_t *val) {
 	if (!arr || !arr->objects) return CSON_ERR_NULL_PTR;
 	if (index >= arr->length) return CSON_ERR_NOT_FOUND;
-	json_value_free(&arr->objects[index]);
+	if (val) val = &arr->objects[index];
+	else json_value_free(&arr->objects[index]);
 	for (size_t i = index + 1; i < arr->length; ++i) {
 		arr->objects[i - 1] = arr->objects[i];
 	}
@@ -627,6 +635,7 @@ int32_t json_string_append_char(json_string_t *str, const char ch) {
 		if (!tmp) return CSON_ERR_ALLOC;
 		str->buf = tmp;
 		str->size = nsz;
+		str->buf[str->size - 1] = '\0';
 	}
 	str->buf[str->length++] = ch;
 	return 0;
@@ -730,6 +739,9 @@ int32_t json_array_resize(json_array_t *array, ssize_t new_size) {
 		return CSON_ERR_ALLOC;
 	}
 	array->objects = tmp;
+	for (ssize_t i = array->length; i < new_size; ++i) {
+		array->objects[i] = (json_value_t){};
+	}
 	array->size = new_size;
 	return 0;
 }
@@ -784,7 +796,36 @@ int32_t json_array_printf(const json_array_t *const arr, uint64_t indent) {
 
 int32_t json_string_printf(const json_string_t *const str) {
 	if (!str) return CSON_ERR_NULL_PTR;
-	printf("\"%s\"", str->buf ? str->buf : "<null>");
+	if (str->buf) {
+		printf("\"");
+		for (ssize_t i = 0; i < str->length; ++i) {
+			char c = str->buf[i];
+			switch (c) {
+				case '\'': {
+					printf("\\\'");
+				} break;
+				case '\"': {
+					printf("\\\"");
+				} break;
+				case '\n': {
+					printf("\\n");
+				} break;
+				case '\t': {
+					printf("\\t");
+				} break;
+				case '\r': {
+					printf("\\r");
+				} break;
+				case '\\': {
+					printf("\\\\");
+				} break;
+				default: {
+					printf("%c", c);
+				}
+			}
+		}
+		printf("\"");
+	} else printf("\"\"");
 	return 0;
 }
 
@@ -842,9 +883,9 @@ int32_t json_object_printf(const json_object_t *const obj, uint64_t indent, bool
 				continue;
 			}
 			json_bucket_t *curr = &obj->buckets[j];
-			while (curr && strcmp(curr->key.buf, obj->keys[i].buf)) {
+			while (curr && strncmp(curr->key.buf, obj->keys[i].buf, curr->key.length)) {
 				curr = curr->next;
-			} 
+			}
 			if (!curr) {
 				fprintf(stderr, "Cannot find key \"%s\"\n", obj->keys[i].buf);
 				continue;
@@ -862,7 +903,7 @@ int32_t json_object_printf(const json_object_t *const obj, uint64_t indent, bool
 			fprintf(stderr, "Cannot hash key \"%s\"\n", obj->keys[i].buf);
 		} else {
 			json_bucket_t *curr = &obj->buckets[j];
-			while (curr && strcmp(curr->key.buf, obj->keys[i].buf)) {
+			while (curr && strncmp(curr->key.buf, obj->keys[i].buf, curr->key.length)) {
 				curr = curr->next;
 			} 
 			if (!curr) {

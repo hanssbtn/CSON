@@ -22,28 +22,10 @@
 
 #ifdef __CSON_DEBUG
 #define debug_printf(...) printf(__VA_ARGS__)
-void debug_free(void *ptr) { \
-	printf("Freeing address 0x%p\n", ptr); \
-	free(ptr); \
-}
-void *debug_malloc(size_t size) {
-	printf("Allocating pointer with size %llu byte(s)\n", size);
-	void *ptr = malloc(size);
-	printf("Resulting ptr: 0x%p\n", ptr);
-	return ptr;
-}
-void *debug_calloc(const size_t num_elements, const size_t element_size) {
-	printf("Allocating pointer with length %lld and size %llu byte(s)\n", num_elements, num_elements * element_size);
-	void *ptr = calloc(num_elements, element_size);
-	printf("Resulting ptr: 0x%p\n", ptr);
-	return ptr;
-}
-void *debug_realloc(void *ptr, size_t size) {
-	printf("Rellocating pointer at address %p with size %llu byte(s)\n", ptr, size);
-	void *new_ptr = realloc(ptr, size);
-	printf("Resulting ptr: 0x%p\n", new_ptr);
-	return new_ptr;
-}
+void debug_free(void *ptr);
+void *debug_malloc(size_t size);
+void *debug_calloc(const size_t num_elements, const size_t element_size);
+void *debug_realloc(void *ptr, size_t size);
 #else
 #define debug_printf(...) {}
 #define debug_free(ptr) free(ptr)
@@ -132,6 +114,7 @@ struct __json_object {
 };
 
 int32_t json_array_init(json_array_t *array, size_t size);
+int32_t json_object_init(json_object_t *obj, size_t size);
 int32_t json_string_free(json_string_t *string);
 
 int32_t json_string_copy(json_string_t *restrict string, const json_string_t *const restrict original);
@@ -162,7 +145,8 @@ int32_t json_object_find_value(json_object_t *const obj, const json_string_t *co
 int32_t json_array_find_index(json_array_t *arr, const json_value_t *const val, ssize_t *const index);
 
 int32_t json_array_delete_value(json_array_t *arr, const json_value_t *const val);
-int32_t json_array_delete_index(json_array_t *arr, const ssize_t index);
+int32_t json_array_delete_index(json_array_t *arr, const ssize_t index, json_value_t *val);
+int32_t json_array_pop(json_array_t *arr, json_value_t *val);
 int32_t json_object_delete_key(json_object_t *const obj, const json_string_t *const key, json_value_t *value);
 
 int32_t json_value_free(json_value_t *val);
