@@ -1,9 +1,11 @@
 {
 	"he\"llo": "world",
 	"world": "hello\n",
-	"nul":  101.1e1,
 	"null": null,
 	"":"",
+	"num1":  101.1e0,
+	"helloworld":  101.1,
+	"num3":  1e-10,
 	"obj": {
 		"nested": "value"
 	}

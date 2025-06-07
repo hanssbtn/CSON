@@ -3,6 +3,10 @@
 #define FNV_PRIME 1099511628211LL
 #define FNV_OFFSET_BASIS 14695981039346656037ULL
 
+int max(ssize_t l, ssize_t r) {
+	return l >= r ? l : r;
+}
+
 ssize_t json_key_hash(ssize_t bucket_size, const json_string_t *const string) {
 	if (!string || !string->buf) return CSON_ERR_NULL_PTR;
 	size_t hash = FNV_OFFSET_BASIS;
@@ -229,10 +233,14 @@ int32_t json_object_append_value(json_object_t *const obj, const json_string_t *
 	int res = 0;
 	size_t j = json_key_hash(obj->size, key);
 	json_bucket_t *curr = &obj->buckets[j], *next = obj->buckets[j].next;
+	if (!curr->key.buf) {
+		goto assign;
+	}
 	if (curr->key.buf && strcmp(key->buf, curr->key.buf) == 0) {
 		printf("Found duplicate key \"%s\"\n", key->buf);
 		return CSON_ERR_ILLEGAL_OPERATION;
 	}
+	
 	while (next) {
 		if (next->key.buf && strcmp(key->buf, next->key.buf) == 0) {
 			printf("Found duplicate key \"%s\"\n", key->buf);
@@ -242,6 +250,13 @@ int32_t json_object_append_value(json_object_t *const obj, const json_string_t *
 		curr = next;
 		next = next->next;
 	}
+	assign:
+	curr->next = debug_malloc(sizeof(json_bucket_t));
+	if (!curr->next) {
+		return CSON_ERR_ALLOC;
+	}
+	*curr->next = (json_bucket_t){};
+	curr = curr->next;
 	if (obj->count >= obj->size) {
 		res = json_object_rehash(obj, obj->size * 2);
 		if (res) {
@@ -276,14 +291,19 @@ int32_t json_object_append_value(json_object_t *const obj, const json_string_t *
 int32_t json_object_move_value(json_object_t *const obj, const json_string_t *const key, json_value_t *const value) {
 	if (!obj || !obj->buckets || !obj->keys || !key || !key->buf || !value) return CSON_ERR_NULL_PTR;
 	int res = 0;
-	size_t j = json_key_hash(obj->size, key);
+	ssize_t j = json_key_hash(obj->size, key);
+	assert(j >= 0);
+	printf("j: %lld\n", j);
 	json_bucket_t *curr = &obj->buckets[j], *next = obj->buckets[j].next;
-	if (curr->key.buf && strcmp(key->buf, curr->key.buf) == 0) {
+	if (!curr->key.buf) {
+		goto assign;
+	}
+	if (curr->key.buf && strncmp(key->buf, curr->key.buf, max(key->length, curr->key.length)) == 0) {
 		printf("Found duplicate key \"%s\"\n", key->buf);
 		return CSON_ERR_ILLEGAL_OPERATION;
 	}
 	while (next) {
-		if (next->key.buf && strcmp(key->buf, next->key.buf) == 0) {
+		if (next->key.buf && strncmp(key->buf, next->key.buf, max(key->length, next->key.length)) == 0) {
 			printf("Found duplicate key \"%s\"\n", key->buf);
 			return CSON_ERR_ILLEGAL_OPERATION;
 		}
@@ -291,7 +311,15 @@ int32_t json_object_move_value(json_object_t *const obj, const json_string_t *co
 		curr = next;
 		next = next->next;
 	}
+	curr->next = debug_malloc(sizeof(json_bucket_t));
+	if (!curr->next) {
+		return CSON_ERR_ALLOC;
+	}
+	*curr->next = (json_bucket_t){};
+	curr = curr->next;
+	assign:
 	if (obj->count >= obj->size) {
+		printf("Rehashing object\n");
 		res = json_object_rehash(obj, obj->size * 2);
 		if (res) {
 			fprintf(stderr, LOG_STRING"Failed to rehash object due to error %d\n", __FILE__, __LINE__, res);
@@ -299,9 +327,9 @@ int32_t json_object_move_value(json_object_t *const obj, const json_string_t *co
 		}
 	}
 	curr->value = *value;
-	printf("curr->value:\n");
-	json_value_printf(&curr->value, 0,true);
-	printf("\n");
+	// printf("curr->value:\n");
+	// json_value_printf(&obj->buckets[j].value, 0, true);
+	// printf("\n");
 	curr->next = NULL;
 	res = json_string_copy(&curr->key, key);
 	if (res) {
@@ -311,7 +339,11 @@ int32_t json_object_move_value(json_object_t *const obj, const json_string_t *co
 	res = json_object_append_key(obj, key, false);
 	if (res) {
 		fprintf(stderr, LOG_STRING"Failed to append object due to error %d\n", __FILE__, __LINE__, res);
+		return res;
 	}
+	// printf("Move result:\n");
+	// json_object_printf(obj,0,true);
+	// printf("\n");
 	return res;
 }
 
@@ -363,7 +395,7 @@ int32_t json_string_cmp(const json_string_t *const str1, const json_string_t *co
 		*res = -1;
 		return 0;
 	}
-	int cmp = strncmp(str1->buf, str2->buf, str1->length);
+	int cmp = strncmp(str1->buf, str2->buf, max(str1->length, str2->length));
 	if (cmp) {
 		*res = cmp;
 		return 0;
@@ -684,6 +716,10 @@ int32_t json_object_free(json_object_t *obj) {
 			json_value_printf(&curr->value, 0, true);
 			printf("\n");
 			json_value_free(&curr->value);
+			printf(LOG_STRING"Freeing object key ", __FILE__, __LINE__);
+			json_string_printf(&curr->key);
+			printf(" at index %lld\n", i);
+			json_string_free(&curr->key);
 			curr = curr->next;
 			i++;
 			while (curr) {
@@ -693,6 +729,10 @@ int32_t json_object_free(json_object_t *obj) {
 				json_value_printf(&curr->value, 0, true);
 				printf("\n");
 				json_value_free(&curr->value);
+				printf(LOG_STRING"Freeing object key ", __FILE__, __LINE__);
+				json_string_printf(&curr->key);
+				printf(" at index %lld\n", i);
+				json_string_free(&curr->key);
 				curr = curr->next;
 				debug_free(prev);
 				i++;
@@ -703,7 +743,9 @@ int32_t json_object_free(json_object_t *obj) {
 	}
 	if (obj->keys) {
 		for (ssize_t j = 0; j < obj->count; ++j) {
-			printf(LOG_STRING"Freeing key %s at index %lld with length %lld and size %lld byte(s)\n",  __FILE__, __LINE__, obj->keys[j].buf, j, obj->keys[j].length, obj->keys[j].size * sizeof(char));
+			printf(LOG_STRING"Freeing key ", __FILE__, __LINE__);
+			json_string_printf(&obj->keys[j]);
+			printf(" at index %lld with length %lld and size %lld byte(s)\n", j, obj->keys[j].length, obj->keys[j].size * sizeof(char));
 			debug_free(obj->keys[j].buf);
 		}
 		printf(LOG_STRING"Freeing key array with count %lld and size %lld byte(s)\n", __FILE__, __LINE__, obj->count, obj->size * sizeof(json_string_t));
@@ -883,11 +925,16 @@ int32_t json_object_printf(const json_object_t *const obj, uint64_t indent, bool
 				continue;
 			}
 			json_bucket_t *curr = &obj->buckets[j];
-			while (curr && strncmp(curr->key.buf, obj->keys[i].buf, curr->key.length)) {
+			// printf("curr:\nkey:\n");
+			// json_string_printf(&curr->key);
+			// printf("\nvalue:\n");
+			// json_value_printf(&curr->value, 0, true);
+			// printf("\n");
+			while (curr && strncmp(curr->key.buf, obj->keys[i].buf, max(curr->key.length, obj->keys[i].length))) {
 				curr = curr->next;
 			}
 			if (!curr) {
-				fprintf(stderr, "Cannot find key \"%s\"\n", obj->keys[i].buf);
+				printf("Cannot find key \"%s\"\n", obj->keys[i].buf);
 				continue;
 			}
 			for (uint64_t l = 0; l < indent + 1; ++l) printf("\t");
@@ -900,14 +947,14 @@ int32_t json_object_printf(const json_object_t *const obj, uint64_t indent, bool
 		for (uint64_t l = 0; l < indent + 1; ++l) printf("\t");
 		j = json_key_hash(obj->size, &obj->keys[i]);
 		if (j < 0) {
-			fprintf(stderr, "Cannot hash key \"%s\"\n", obj->keys[i].buf);
+			printf("Cannot hash key \"%s\"\n", obj->keys[i].buf);
 		} else {
 			json_bucket_t *curr = &obj->buckets[j];
-			while (curr && strncmp(curr->key.buf, obj->keys[i].buf, curr->key.length)) {
+			while (curr && strncmp(curr->key.buf, obj->keys[i].buf, max(curr->key.length, obj->keys[i].length))) {
 				curr = curr->next;
 			} 
 			if (!curr) {
-				fprintf(stderr, "Cannot find key \"%s\"\n", obj->keys[i].buf);
+				printf("Cannot find key \"%s\"\n", obj->keys[i].buf);
 			} else {
 				json_string_printf(&curr->key);
 				printf(": ");

@@ -39,10 +39,12 @@ typedef struct {
 	ssize_t state_count, state_size;
 	ssize_t key_count, key_size;
 	// For parsing doubles
-	uint16_t exponent;
+	int16_t exponent;
+	bool found_number_after_period;
+	bool found_number_after_exponent;
 	json_parser_state_t *states;
 	json_value_t value;
-	uint16_t parser_flag;
+	int16_t parser_flag;
 	ssize_t pointer;
 	json_string_t *temporary_keys;
 	json_array_t temporaries;
