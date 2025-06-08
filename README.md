@@ -1,0 +1,2 @@
+# CSON
+A JSON file parser and constructor written using C17 and GNU libc compiled with GCC 15.1.0 on Windows 10 x86-64 capable of parsing files with sizes upto the system / machine limit. This is a personal project and SHOULD NOT be used professionally.
