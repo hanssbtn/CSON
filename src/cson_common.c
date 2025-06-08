@@ -759,8 +759,9 @@ int32_t json_array_free(json_array_t *array) {
 	if (!array) return CSON_ERR_NULL_PTR;
 	for (ssize_t i = 0; i < array->length; ++i) {
 		json_value_t *val = &array->objects[i];
-		debug_printf(LOG_STRING"Freeing value at index %lld\n", __FILE__, __LINE__,  i);
+		debug_printf(LOG_STRING"Freeing value\n", __FILE__, __LINE__);
 		json_value_printf(val, 0, true);
+		printf("\nat index %lld\n", i);
 		json_value_free(val);
 	}
 	if (array->objects) {
