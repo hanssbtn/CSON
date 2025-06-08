@@ -142,7 +142,6 @@ int32_t json_array_printf(const json_array_t *const arr, uint64_t indent);
 int32_t json_object_printf(const json_object_t *const obj, uint64_t indent, bool start);
 
 int32_t json_object_find_value(json_object_t *const obj, const json_string_t *const key, json_value_t *value);
-int32_t json_array_find_index(json_array_t *arr, const json_value_t *const val, ssize_t *const index);
 
 int32_t json_array_delete_value(json_array_t *arr, const json_value_t *const val);
 int32_t json_array_delete_index(json_array_t *arr, const ssize_t index, json_value_t *val);
