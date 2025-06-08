@@ -28,7 +28,7 @@ int32_t json_object_init(json_object_t *obj, size_t size) {
 	obj->keys = debug_malloc(size * sizeof(json_string_t));
 	if (!obj->keys) {
 		fprintf(stderr, LOG_STRING"Failed to allocate memory for keys\n", __FILE__, __LINE__);
-		free(obj->buckets);
+		debug_free(obj->buckets);
 		return CSON_ERR_ALLOC;
 	}
 	obj->count = 0;

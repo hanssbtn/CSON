@@ -40,8 +40,9 @@ typedef struct {
 	int16_t exponent;
 	bool found_number_after_period;
 	bool found_number_after_exponent;
+	bool found_number_after_sign;
 	json_value_t value;
-	int16_t parser_flag;
+	uint16_t parser_flag;
 	ssize_t pointer;
 	ssize_t depth_count, depth_size;
 	ssize_t *depth;
@@ -53,6 +54,7 @@ typedef struct {
 	char buf[BUFFER_SIZE];
 } json_parser_t;
 
+int32_t json_parser_free(json_parser_t *parser);
 int32_t json_parser_init(json_parser_t *const parser);
 int32_t json_parse(json_parser_t *const parser, json_value_t *value, const char *const filename);
 

@@ -1,5 +1,51 @@
 #include "../include/cson_parser.h"
 
+const char *get_state_name(json_parser_state_t state) {
+	switch (state) {
+		case CSON_PARSER_STATE_IDLE: {
+			return "IDLE";
+		}
+		case CSON_PARSER_STATE_OBJECT: {
+			return "OBJECT";
+		}
+		case CSON_PARSER_STATE_KEY: {
+			return "KEY";
+		}
+		case CSON_PARSER_STATE_ARRAY: {
+			return "ARRAY";
+		}
+		case CSON_PARSER_STATE_STRING: {
+			return "STRING";
+		}
+		case CSON_PARSER_STATE_I64: {
+			return "I64";
+		}
+		case CSON_PARSER_STATE_U64: {
+			return "U64";
+		}
+		case CSON_PARSER_STATE_F64: {
+			return "F64";
+		}
+		case CSON_PARSER_STATE_BOOLEAN: {
+			return "BOOLEAN";
+		}
+		case CSON_PARSER_STATE_NULL: {
+			return "NULL";
+		}
+		case CSON_PARSER_STATE_INVALID_CHARACTER: {
+			return "INVALID CHARACTER";
+		}
+		case CSON_PARSER_STATE_ESCAPE: {
+			return "ESCAPE";
+		}
+		case CSON_PARSER_STATE_EXPECT_END_OR_COMMA: {
+			return "EXPECT";
+		}
+		default: break;
+	}
+	return "INVALID STATE";
+}
+
 int32_t json_parser_push_key(json_parser_t *parser) {
 	if (parser->key_count == parser->key_size) {
 		ssize_t nsz = parser->key_size * 2;
@@ -11,12 +57,12 @@ int32_t json_parser_push_key(json_parser_t *parser) {
 		parser->temporary_keys = tmp;
 		parser->key_size =  nsz;
 	}
-	char *tmp = malloc(8 * sizeof(char));
+	char *tmp = debug_malloc(8 * sizeof(char));
 	if (!tmp) {
 		fprintf(stderr, LOG_STRING"Failed to allocate memory for new key\n", __FILE__, __LINE__);
 		return CSON_ERR_ALLOC;
 	}
-	printf("parser->key_count: %lld, size: %lld\n", parser->key_count, parser->key_size);
+	// printf("parser->key_count: %lld, size: %lld\n", parser->key_count, parser->key_size);
 	parser->temporary_keys[parser->key_count] = (json_string_t){
 		.buf = tmp,
 		.size = 8
@@ -36,7 +82,7 @@ int32_t json_parser_pop_key(json_parser_t *parser, json_string_t *key) {
 	return 0;
 }
 
-int32_t json_parser_push_state(json_parser_t *parser,	json_parser_state_t state) { 
+int32_t json_parser_push_state(json_parser_t *parser, json_parser_state_t state) { 
 	if (parser->state_count >= parser->state_size) {
 		ssize_t nsz = parser->state_size * 2;
 		json_parser_state_t *tmp = debug_realloc(parser->states, nsz * sizeof(json_parser_state_t));
@@ -47,6 +93,7 @@ int32_t json_parser_push_state(json_parser_t *parser,	json_parser_state_t state)
 		parser->states = tmp;
 		parser->state_size;
 	}
+	// printf("Pushing state %s\n", get_state_name(state));
 	parser->states[parser->state_count++] = state;
 	return 0;
 }
@@ -59,6 +106,12 @@ int32_t json_parser_push_temporary(json_parser_t *parser, const json_value_t *co
 		return res;
 	}
 	return 0;
+}
+
+void json_parser_print_state(const json_parser_t *const parser) {
+	for (ssize_t i = 0; i < parser->state_count; ++i) {
+		printf("%s\n", get_state_name(parser->states[i]));
+	}
 }
 
 int32_t json_parser_pop_state(json_parser_t *parser,	json_parser_state_t *state) {
@@ -80,7 +133,6 @@ int32_t json_parser_pop_temporary(json_parser_t *parser, json_value_t *val) {
 }
 
 int32_t json_parser_handle_digit(json_parser_t *parser, json_parser_state_t *current_state, const char ch) {
-	printf("Current digit: %c\n", ch);
 	if (parser->state_count <= 0) return CSON_PARSER_STATE_INVALID_CHARACTER;
 	switch (*current_state) {
 		case CSON_PARSER_STATE_OBJECT:
@@ -94,7 +146,7 @@ int32_t json_parser_handle_digit(json_parser_t *parser, json_parser_state_t *cur
 			if (res) return res;
 			res = json_parser_push_state(parser, *current_state);
 			*current_state = CSON_PARSER_STATE_U64;
-			parser->parser_flag &= ~CSON_PARSER_FLAG_FOUND_VALUE_START;
+			parser->parser_flag &= ~(CSON_PARSER_FLAG_FOUND_VALUE_START | CSON_PARSER_FLAG_FOUND_TRAILING_COMMA);
 			if (res) return res;
 		} break;
 		case CSON_PARSER_STATE_F64: {
@@ -109,14 +161,18 @@ int32_t json_parser_handle_digit(json_parser_t *parser, json_parser_state_t *cur
 				break;
 			}
 			double f = parser->temporaries.objects[parser->temporaries.length - 1].number.f64;
+			// printf("f: %e, digit: %c\n", f, ch);
 			if (parser->parser_flag & CSON_PARSER_FLAG_FOUND_PERIOD) {
 				double mantissa = ch - '0';
 				parser->exponent++;
-				printf("exponent: %hu\n", parser->exponent);
+				// printf("exponent: %hd\n", parser->exponent);
 				for (ssize_t p = 0; p < parser->exponent; ++p) {
 					mantissa /= 10;
 				}
-				if (parser->parser_flag & CSON_PARSER_FLAG_FOUND_SIGN) f -= mantissa;
+				if (parser->parser_flag & CSON_PARSER_FLAG_FOUND_SIGN) {
+					f -= mantissa;
+					parser->found_number_after_sign = true;
+				}
 				else f += mantissa;
 				parser->temporaries.objects[parser->temporaries.length - 1].number.f64 = f;
 				parser->found_number_after_period = true;
@@ -140,23 +196,31 @@ int32_t json_parser_handle_digit(json_parser_t *parser, json_parser_state_t *cur
 			num *= 10;
 			num += ch - '0';
 			parser->temporaries.objects[parser->temporaries.length - 1].number.u64 = num;
+			parser->parser_flag &= ~(CSON_PARSER_FLAG_FOUND_TRAILING_COMMA);
 		} break;
 		case CSON_PARSER_STATE_I64: {
 			int64_t num = parser->temporaries.objects[parser->temporaries.length - 1].number.i64;
+			// printf("num: %lld, digit: %c\n", num, ch);
 			if (num >= INT64_MAX / 10 - (ch - '0') || num <= INT64_MIN / 10 + (ch - '0')) {
 				*current_state = CSON_PARSER_STATE_F64;
 				double f = num;
 				f *= 10;
-				if (parser->parser_flag & CSON_PARSER_FLAG_FOUND_SIGN) f -= ch - '0';
-				else f += ch - '0';
+				if (parser->parser_flag & CSON_PARSER_FLAG_FOUND_SIGN) {
+					f -= ch - '0';
+					parser->found_number_after_sign = true;
+				} else f += ch - '0';
 				parser->temporaries.objects[parser->temporaries.length - 1].number.num_type = JSON_NUMBER_TYPE_F64;
 				parser->temporaries.objects[parser->temporaries.length - 1].number.f64 = f;
 				break;
 			}
 			num *= 10;
-			if (parser->parser_flag & CSON_PARSER_FLAG_FOUND_SIGN) num -= ch - '0';
+			if (parser->parser_flag & CSON_PARSER_FLAG_FOUND_SIGN) {
+				num -= ch - '0';
+				parser->found_number_after_sign = true;
+			}
 			else num += ch - '0';
 			parser->temporaries.objects[parser->temporaries.length - 1].number.i64 = num;
+			parser->parser_flag &= ~(CSON_PARSER_FLAG_FOUND_TRAILING_COMMA);
 		} break;
 		case CSON_PARSER_STATE_STRING: {
 			json_string_t *str = &parser->temporaries.objects[parser->temporaries.length - 1].string;
@@ -176,7 +240,6 @@ int32_t json_parser_handle_digit(json_parser_t *parser, json_parser_state_t *cur
 }
 
 int32_t json_parser_handle_char(json_parser_t *parser, json_parser_state_t *current_state, const char ch) {
-	printf("Current char: %c\n", ch);
 	if (parser->state_count <= 0) return CSON_PARSER_STATE_INVALID_CHARACTER;
 	switch (*current_state) {
 		case CSON_PARSER_STATE_I64: {
@@ -327,7 +390,7 @@ int32_t json_parser_handle_char(json_parser_t *parser, json_parser_state_t *curr
 					return CSON_PARSER_STATE_INVALID_CHARACTER;
 				}
 				parser->parser_flag &= ~(CSON_PARSER_FLAG_FOUND_VALUE_START |CSON_PARSER_FLAG_FOUND_NULL_L1 | CSON_PARSER_FLAG_FOUND_TRAILING_COMMA);
-				printf(LOG_STRING"Found null object.\n", __FILE__, __LINE__);
+				// printf(LOG_STRING"Found null object.\n", __FILE__, __LINE__);
 				json_value_t val = {
 					.value_type = JSON_OBJECT_TYPE_NULL,
 					.null = (json_null_t){}
@@ -347,54 +410,6 @@ int32_t json_parser_handle_char(json_parser_t *parser, json_parser_state_t *curr
 	}
 }
 
-const char *get_state_name(json_parser_state_t state) {
-	switch (state) {
-		case CSON_PARSER_STATE_IDLE: {
-			return "IDLE";
-		}
-		case CSON_PARSER_STATE_OBJECT: {
-			return "OBJECT";
-		}
-		case CSON_PARSER_STATE_KEY: {
-			return "KEY";
-		}
-		case CSON_PARSER_STATE_ARRAY: {
-			return "ARRAY";
-		}
-		case CSON_PARSER_STATE_STRING: {
-			return "STRING";
-		}
-		case CSON_PARSER_STATE_I64: {
-			return "I64";
-		}
-		case CSON_PARSER_STATE_U64: {
-			return "U64";
-		}
-		case CSON_PARSER_STATE_F64: {
-			return "F64";
-		}
-		case CSON_PARSER_STATE_BOOLEAN: {
-			return "BOOLEAN";
-		}
-		case CSON_PARSER_STATE_NULL: {
-			return "NULL";
-		}
-		case CSON_PARSER_STATE_INVALID_CHARACTER: {
-			return "INVALID CHARACTER";
-		}
-		case CSON_PARSER_STATE_ESCAPE: {
-			return "ESCAPE";
-		}
-		case CSON_PARSER_STATE_EXPECT_END_OR_COMMA: {
-			return "EXPECT";
-		}
-		default: {
-			return "INVALID STATE";
-		}
-	}
-	return "INVALID STATE";
-}
-
 int32_t convert_f64(json_parser_t *parser) {
 	if (parser->parser_flag & (CSON_PARSER_FLAG_FOUND_EXPONENT | CSON_PARSER_FLAG_FOUND_NEGATIVE_EXPONENT) && !parser->found_number_after_exponent) {
 		fprintf(stderr, LOG_STRING"Found invalid exponent symbol (no number after \'e\')\n", __FILE__, __LINE__);
@@ -406,9 +421,14 @@ int32_t convert_f64(json_parser_t *parser) {
 			exit(-1);
 		}
 	}
+	if (parser->parser_flag & (CSON_PARSER_FLAG_FOUND_SIGN) && !parser->found_number_after_sign) {
+		fprintf(stderr, LOG_STRING"Found invalid sign symbol (no number after \'-\')\n", __FILE__, __LINE__);
+		exit(-1);
+	}
+	
 	parser->found_number_after_period = false;
 	double f = parser->temporaries.objects[parser->temporaries.length - 1].number.f64;
-	printf("exponent: %hd\n", parser->exponent);
+	// printf("exponent: %hd\n", parser->exponent);
 	if (parser->found_number_after_exponent) {
 		if (parser->exponent < 0) {
 			while (parser->exponent + 100 < -100) {
@@ -438,9 +458,10 @@ int32_t convert_f64(json_parser_t *parser) {
 			}
 		}
 	}
+	parser->found_number_after_sign = false;
 	parser->found_number_after_exponent = false;
 	parser->temporaries.objects[parser->temporaries.length - 1].number.f64 = f;
-	printf("final value: %e\n", f);
+	parser->parser_flag &= ~(CSON_PARSER_FLAG_FOUND_SIGN | CSON_PARSER_FLAG_FOUND_PERIOD | CSON_PARSER_FLAG_FOUND_VALUE_START | CSON_PARSER_FLAG_FOUND_EXPONENT | CSON_PARSER_FLAG_FOUND_NEGATIVE_EXPONENT);
 	return 0;
 }
 
@@ -504,7 +525,7 @@ int32_t json_parser_init(json_parser_t *const parser) {
 	return 0;
 }
 
-void parser_flags_printf(uint16_t flags) {
+void json_parser_flags_printf(uint16_t flags) {
 	printf("--------------------------\n");
 	if (flags & CSON_PARSER_FLAG_FOUND_SIGN) {
 		printf("FOUND_SIGN\n");
@@ -514,6 +535,9 @@ void parser_flags_printf(uint16_t flags) {
 	}
 	if (flags & CSON_PARSER_FLAG_FOUND_EXPONENT) {
 		printf("FOUND_EXPONENT\n");
+	}
+	if (flags & CSON_PARSER_FLAG_FOUND_NEGATIVE_EXPONENT) {
+		printf("FOUND_NEGATIVE_EXPONENT\n");
 	}
 	if (flags & CSON_PARSER_FLAG_FOUND_NULL_N) {
 		printf("FOUND_NULL_N\n");
@@ -536,6 +560,9 @@ void parser_flags_printf(uint16_t flags) {
 	if (flags & CSON_PARSER_FLAG_FOUND_STRING_START) {
 		printf("FOUND_STRING_START\n");
 	}
+	if (flags & CSON_PARSER_FLAG_FOUND_TRAILING_COMMA) {
+		printf("FOUND_TRAILING_COMMA\n");
+	}
 	printf("--------------------------\n");
 }
 
@@ -548,14 +575,18 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 	} 
 	int res = 0;
 	for (parser->pointer = 0; parser->pointer < n; ++parser->pointer) {
+		printf("state stack:\n");
+		json_parser_print_state(parser);
+		printf("current state: %s\n", get_state_name(current_state));
 		char ch = parser->buf[parser->pointer];
+		printf("current char \"%c\" at index %lld\n", ch, parser->pointer);
+		printf("flags:\n");
+		json_parser_flags_printf(parser->parser_flag);
 		if (isalpha(ch)) json_parser_handle_char(parser, &current_state, ch);
 		else if (isdigit(ch)) json_parser_handle_digit(parser, &current_state, ch);
 		else {
 			switch (ch) {
 				case '\"': {
-					printf("Found \"\"\" at index %lld\n", parser->pointer);
-					printf("current state: %s\n", get_state_name(current_state));
 					switch (current_state) {
 						case CSON_PARSER_STATE_ESCAPE: {
 							printf("Popping state\n");
@@ -688,7 +719,6 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 					}
 				} break;
 				case '-': {
-					printf("Found \"-\" at index %lld\n", parser->pointer);
 					switch (current_state) {
 						case CSON_PARSER_STATE_KEY: {
 							json_string_t *str = &parser->temporary_keys[parser->key_count - 1];
@@ -700,33 +730,10 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 							int res = json_string_append_char(str, ch);
 							if (res) return res;
 						} break;
-						case CSON_PARSER_STATE_I64:
-						case CSON_PARSER_STATE_U64: 
-						case CSON_PARSER_STATE_F64: {
-							if (parser->parser_flag & CSON_PARSER_FLAG_FOUND_SIGN) {
-								if (parser->parser_flag & (CSON_PARSER_FLAG_FOUND_EXPONENT | CSON_PARSER_FLAG_FOUND_NEGATIVE_EXPONENT) == CSON_PARSER_FLAG_FOUND_EXPONENT && !parser->found_number_after_exponent) {
-									printf("Found negative sign after exponent.\n");
-									parser->parser_flag = (parser->parser_flag & ~CSON_PARSER_FLAG_FOUND_EXPONENT) | CSON_PARSER_FLAG_FOUND_NEGATIVE_EXPONENT;
-									break;
-								} else {
-									fprintf(stderr, LOG_STRING"Found duplicate \'-\' characters at index %lld when parsing number.\n", parser->pointer, __FILE__, __LINE__);
-									return CSON_PARSER_STATE_INVALID_CHARACTER;
-								}
-							} else {
-								if ((parser->parser_flag & CSON_PARSER_FLAG_FOUND_EXPONENT) && !parser->found_number_after_exponent) {
-									printf("Found negative sign after exponent.\n");
-									parser->parser_flag = (parser->parser_flag & ~CSON_PARSER_FLAG_FOUND_EXPONENT) | CSON_PARSER_FLAG_FOUND_NEGATIVE_EXPONENT;
-									break;
-								} else {
-									fprintf(stderr, LOG_STRING"Found invalid \'-\' characters at index %lld when parsing number.\n", parser->pointer, __FILE__, __LINE__);
-									return CSON_PARSER_STATE_INVALID_CHARACTER;
-								}
-							}
-							printf(LOG_STRING"Found sign at index %lld, converting number to negative.\n", __FILE__, __LINE__, parser->pointer);
-							int res = json_parser_push_state(parser, CSON_PARSER_STATE_I64);
-							if (res) {
-								fprintf(stderr, LOG_STRING"Failed to push state into parser due to error %d\n", __FILE__, __LINE__, res);
-								return res;
+						case CSON_PARSER_STATE_OBJECT: {
+							if (!(parser->parser_flag & CSON_PARSER_FLAG_FOUND_VALUE_START)) {
+								fprintf(stderr, "Found illegal \'-\' at index %lld\n", parser->pointer);
+								exit(-1);
 							}
 							json_value_t val = {
 								.value_type = JSON_OBJECT_TYPE_NUMBER,
@@ -735,12 +742,46 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 									.i64 = 0
 								}
 							};
-							res = json_parser_push_temporary(parser, &val, false);
-							if (res) {
-								fprintf(stderr, LOG_STRING"Failed to push temporary into parser due to error %d\n", __FILE__, __LINE__, res);
-								return res;
-							}
 							parser->parser_flag |= CSON_PARSER_FLAG_FOUND_SIGN;
+							json_parser_push_temporary(parser, &val, false);
+							json_parser_push_state(parser, current_state);
+							current_state = CSON_PARSER_STATE_I64;
+						} break;
+						case CSON_PARSER_STATE_ARRAY: {
+							json_value_t val = {
+								.value_type = JSON_OBJECT_TYPE_NUMBER,
+								.number = {
+									.num_type = JSON_NUMBER_TYPE_I64,
+									.i64 = 0
+								}
+							};
+							parser->parser_flag |= CSON_PARSER_FLAG_FOUND_SIGN;
+							json_parser_push_temporary(parser, &val, false);
+							json_parser_push_state(parser, current_state);
+							current_state = CSON_PARSER_STATE_I64;
+						} break;
+						case CSON_PARSER_STATE_F64: {
+							json_parser_flags_printf(parser->parser_flag);
+							// Parse '-' after 'e'
+							if (parser->parser_flag & CSON_PARSER_FLAG_FOUND_SIGN) {
+								if ((parser->parser_flag & (CSON_PARSER_FLAG_FOUND_EXPONENT | CSON_PARSER_FLAG_FOUND_NEGATIVE_EXPONENT)) == CSON_PARSER_FLAG_FOUND_EXPONENT && !parser->found_number_after_exponent) {
+									printf("Found negative sign after exponent.\n");
+									parser->parser_flag = (parser->parser_flag & ~CSON_PARSER_FLAG_FOUND_EXPONENT) | CSON_PARSER_FLAG_FOUND_NEGATIVE_EXPONENT;
+									break;
+								} else {
+									fprintf(stderr, LOG_STRING"Found duplicate \'-\' characters at index %lld when parsing number.\n", __FILE__, __LINE__, parser->pointer);
+									return CSON_PARSER_STATE_INVALID_CHARACTER;
+								}
+							} else {
+								if ((parser->parser_flag & CSON_PARSER_FLAG_FOUND_EXPONENT) && !parser->found_number_after_exponent) {
+									printf("Found negative sign after exponent.\n");
+									parser->parser_flag = (parser->parser_flag & ~CSON_PARSER_FLAG_FOUND_EXPONENT) | CSON_PARSER_FLAG_FOUND_NEGATIVE_EXPONENT;
+									break;
+								} else {
+									fprintf(stderr, LOG_STRING"Found invalid \'-\' characters at index %lld when parsing number.\n", __FILE__, __LINE__, parser->pointer);
+									return CSON_PARSER_STATE_INVALID_CHARACTER;
+								}
+							}
 						} break;
 						default: {
 							fprintf(stderr, LOG_STRING"Found invalid character \'-\' at index %lld\n", __FILE__, __LINE__, parser->pointer);
@@ -749,7 +790,6 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 					}
 				} break;
 				case '.': {
-					printf("Found \".\" at index %lld\n", parser->pointer);
 					switch (current_state) {
 						case CSON_PARSER_STATE_KEY: {
 							json_string_t *str = &parser->temporary_keys[parser->key_count - 1];
@@ -761,7 +801,15 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 							int res = json_string_append_char(str, ch);
 							if (res) return res;
 						} break;
-						case CSON_PARSER_STATE_I64: 
+						case CSON_PARSER_STATE_I64: {
+							printf(LOG_STRING"Found period at index %lld, converting number to double.\n", __FILE__, __LINE__, parser->pointer);
+							current_state = CSON_PARSER_STATE_F64;
+							parser->parser_flag |= CSON_PARSER_FLAG_FOUND_PERIOD;
+							parser->exponent = 0;
+							double f = parser->temporaries.objects[parser->temporaries.length - 1].number.i64;
+							parser->temporaries.objects[parser->temporaries.length - 1].number.f64 = f;
+							parser->temporaries.objects[parser->temporaries.length - 1].number.num_type = JSON_NUMBER_TYPE_F64;
+						} break;
 						case CSON_PARSER_STATE_U64: {
 							printf(LOG_STRING"Found period at index %lld, converting number to double.\n", __FILE__, __LINE__, parser->pointer);
 							current_state = CSON_PARSER_STATE_F64;
@@ -791,7 +839,6 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 					}
 				} break;
 				case ':': {
-					printf("Found \'%c\' at index %lld\n", ch, parser->pointer);
 					switch (current_state) {
 						case CSON_PARSER_STATE_KEY: {
 							json_string_t *str = &parser->temporary_keys[parser->key_count - 1];
@@ -811,6 +858,7 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 								fprintf(stderr, LOG_STRING"Found unaccounted \':\' character at index %lld\n", __FILE__, __LINE__, parser->pointer);
 								return CSON_PARSER_STATE_INVALID_CHARACTER;
 							}
+
 						} break;
 						default: {
 							fprintf(stderr, LOG_STRING"Found illegal \':\' character at index %lld\n", __FILE__, __LINE__, parser->pointer);
@@ -820,7 +868,6 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 					}
 				} break;
 				case '{': {
-					printf("Found \'%c\' at index %lld\n", ch, parser->pointer);
 					switch (current_state) {
 						case CSON_PARSER_STATE_KEY: {
 							json_string_t *str = &parser->temporary_keys[parser->key_count - 1];
@@ -833,7 +880,7 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 							if (res) return res;
 						} break;
 						case CSON_PARSER_STATE_IDLE: {
-							json_object_t *object = malloc(sizeof(json_object_t));
+							json_object_t *object = debug_malloc(sizeof(json_object_t));
 							if (!object) {
 								fprintf(stderr, LOG_STRING"Failed to initialize first object\n", __FILE__, __LINE__);
 								return CSON_ERR_ALLOC;
@@ -854,7 +901,7 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 						} break;
 						case CSON_PARSER_STATE_OBJECT: {
 							if (parser->parser_flag & CSON_PARSER_FLAG_FOUND_VALUE_START) {
-								json_object_t *object = malloc(sizeof(json_object_t));
+								json_object_t *object = debug_malloc(sizeof(json_object_t));
 								if (!object) {
 									fprintf(stderr, LOG_STRING"Failed to initialize first object\n", __FILE__, __LINE__);
 									return CSON_ERR_ALLOC;
@@ -867,11 +914,11 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 								if (res) {
 									return res;
 								}
-								printf("Depth:\n");
-								for (ssize_t j = 0; j < parser->depth_count; ++j) {
-									printf("%lld ", parser->depth[j]);
-								}
-								printf("\n");
+								// printf("depth:\n");
+								// for (ssize_t j = 0; j < parser->depth_count; ++j) {
+								// 	printf("%lld ", parser->depth[j]);
+								// }
+								// printf("\n");
 								json_value_t val = {
 									.object = object
 								};
@@ -885,7 +932,6 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 								if (res) {
 									return res;
 								}
-								
 								current_state = CSON_PARSER_STATE_OBJECT;
 								break;
 							} else {
@@ -898,30 +944,29 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 							if (res) {
 								return res;
 							}
-							json_array_t *array = malloc(sizeof(json_array_t));
-							if (!array) {
-								fprintf(stderr, LOG_STRING"Failed to initialize first array\n", __FILE__, __LINE__);
+							json_object_t *object = debug_malloc(sizeof(json_object_t));
+							if (!object) {
+								fprintf(stderr, LOG_STRING"Failed to initialize first object\n", __FILE__, __LINE__);
 								return CSON_ERR_ALLOC;
 							}
-							res = json_array_init(array, 8);
+							res = json_object_init(object, 8);
 							if (res) {
 								return res;
 							}
 							json_value_t val = {
-								.value_type = JSON_OBJECT_TYPE_ARRAY,
-								.array = array
+								.object = object
 							};
 							res = json_parser_push_temporary(parser, &val, false);
 							if (res) {
 								fprintf(stderr, LOG_STRING"Failed to push temporary into parser due to error %d\n", __FILE__, __LINE__, res);
 								return res;
 							}
-							break;
+							parser->parser_flag &= ~CSON_PARSER_FLAG_FOUND_VALUE_START;
 							res = json_parser_push_state(parser, current_state);
 							if (res) {
 								return res;
 							}
-							current_state = CSON_PARSER_STATE_ARRAY;
+							current_state = CSON_PARSER_STATE_OBJECT;
 						} break;
 
 						default: {
@@ -935,7 +980,6 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 						fprintf(stderr, LOG_STRING"Found trailing comma\n", __FILE__, __LINE__);
 						exit(-1);
 					}
-					printf("Found \'%c\' at index %lld\n", ch, parser->pointer);
 					switch (current_state) {
 						case CSON_PARSER_STATE_KEY: {
 							json_string_t *str = &parser->temporary_keys[parser->key_count - 1];
@@ -950,9 +994,15 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 						case CSON_PARSER_STATE_OBJECT: 
 						case CSON_PARSER_STATE_EXPECT_END_OR_COMMA: {
 							ssize_t index = -1;
+							printf("keys:\n");
+							for (ssize_t i = 0; i < parser->key_count; ++i) {
+								printf("i: %lld, ", i);
+								json_string_printf(&parser->temporary_keys[i]);
+								printf("\n");
+							}
 							printf("temporaries:\n");
 							for (ssize_t i = 0; i < parser->temporaries.length; ++i) {
-								printf("i: %lld\n", i);
+								printf("i: %lld, ", i);
 								json_value_printf(&parser->temporaries.objects[i], 0, true);
 								printf("\n");
 							}
@@ -963,28 +1013,44 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 							printf("\n");
 							json_parser_pop_depth(parser, &index);
 							if (index >= 0) {
+								if (parser->temporaries.length > 0 
+									&& parser->temporaries.objects[parser->temporaries.length - 1].value_type == JSON_OBJECT_TYPE_NUMBER
+									&& parser->temporaries.objects[parser->temporaries.length - 1].number.num_type == JSON_NUMBER_TYPE_F64
+								) {
+									convert_f64(parser);
+								} 
 								printf("index: %lld, type: %d\n", index, parser->temporaries.objects[index].value_type);
 								json_object_t *obj = parser->temporaries.objects[index].object;
-								for (ssize_t j = index + 1; j < parser->temporaries.length; ++j) {
-									printf("moving key to object\n");
-									json_string_printf(&parser->temporary_keys[j]);
-									printf("\nmoving value to object\n");
-									json_value_printf(&parser->temporaries.objects[j], 0, true);
-									printf("\n");
-									json_object_move_value(obj, &parser->temporary_keys[j], &parser->temporaries.objects[j]);
-									parser->temporary_keys[j] = (json_string_t){};
+								ssize_t j, k;
+								ssize_t new_key_length = parser->key_count - (parser->temporaries.length - index) + 1;
+								printf("new_key_length: %lld\n", new_key_length);
+								assert(new_key_length >= 0);
+								for (j = index + 1, k = new_key_length; k < parser->key_count && j < parser->temporaries.length; ++j, ++k) {
+									// printf("moving key to object\n");
+									// json_string_printf(&parser->temporary_keys[k]);
+									// printf("\nmoving value to object\n");
+									// json_value_printf(&parser->temporaries.objects[j], 0, true);
+									// printf("\n");
+									json_object_move_value(obj, &parser->temporary_keys[k], &parser->temporaries.objects[j]);
+									parser->temporary_keys[k] = (json_string_t){};
 									parser->temporaries.objects[j] = (json_value_t){};
 								}
 								printf("new length: %lld\n", index);
 								parser->temporaries.length = index + 1;
-								parser->key_count = index + 1;
+								parser->key_count = new_key_length;
 							} else {
 								if (parser->value.value_type != JSON_OBJECT_TYPE_OBJECT) {
 									fprintf(stderr, LOG_STRING"Failed to find object\n", __FILE__, __LINE__);
 									exit(-1);
 								} else {
+									if (parser->temporaries.length > 0 
+										&& parser->temporaries.objects[parser->temporaries.length - 1].value_type == JSON_OBJECT_TYPE_NUMBER
+										&& parser->temporaries.objects[parser->temporaries.length - 1].number.num_type == JSON_NUMBER_TYPE_F64
+									) {
+										convert_f64(parser);
+									} 
 									index++;
-									for (ssize_t j = index, k = index; j < parser->temporaries.length && k < parser->key_count; ++j, ++k) {
+									for (ssize_t j = 0, k = 0; j < parser->temporaries.length && k < parser->key_count; ++j, ++k) {
 										printf("moving key to object\n");
 										json_string_printf(&parser->temporary_keys[k]);
 										printf("\n");
@@ -995,14 +1061,29 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 										parser->temporary_keys[k] = (json_string_t){};
 										parser->temporaries.objects[j] = (json_value_t){};
 									}
+									// for (ssize_t j = parser->temporaries.length - 1, k = parser->key_count - 1; j >= 0 && k >= 0; --j, --k) {
+									// 	printf("moving key to object\n");
+									// 	json_string_printf(&parser->temporary_keys[k]);
+									// 	printf("\n");
+									// 	printf("moving value to object\n");
+									// 	json_value_printf(&parser->temporaries.objects[j], 0, true);
+									// 	printf("\n");
+									// 	json_object_move_value(parser->value.object, &parser->temporary_keys[k], &parser->temporaries.objects[j]);
+									// 	parser->temporary_keys[k] = (json_string_t){};
+									// 	parser->temporaries.objects[j] = (json_value_t){};
+									// }
 									printf("new length: %lld\n", index);
-									parser->temporaries.length = index;
-									parser->key_count = index;
+									parser->temporaries.length = 0;
+									parser->key_count = 0;
 									printf("object:\n");
 									json_object_printf(parser->value.object, 0, true);
 									printf("\n");
 								}
 							}
+
+							json_parser_pop_state(parser, NULL);
+							current_state = CSON_PARSER_STATE_EXPECT_END_OR_COMMA;
+							parser->parser_flag &= ~(CSON_PARSER_FLAG_FOUND_SIGN | CSON_PARSER_FLAG_FOUND_PERIOD | CSON_PARSER_FLAG_FOUND_VALUE_START | CSON_PARSER_FLAG_FOUND_EXPONENT | CSON_PARSER_FLAG_FOUND_NEGATIVE_EXPONENT);
 						} break;
 						default: {
 							fprintf(stderr, LOG_STRING"Found invalid character %c at index %lld\n", __FILE__, __LINE__, ch, parser->pointer);
@@ -1011,10 +1092,9 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 					}
 				} break;
 				case '[': {
-					printf("Found \'%c\' at index %lld\n", ch, parser->pointer);
 					switch (current_state) {
 						case CSON_PARSER_STATE_IDLE: {
-							json_array_t *array = malloc(sizeof(json_array_t));
+							json_array_t *array = debug_malloc(sizeof(json_array_t));
 							if (!array) {
 								fprintf(stderr, LOG_STRING"Failed to initialize first array\n", __FILE__, __LINE__);
 								return CSON_ERR_ALLOC;
@@ -1024,6 +1104,7 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 								return res;
 							}
 							json_value_t val = {
+								.value_type = JSON_OBJECT_TYPE_ARRAY,
 								.array = array
 							};
 							parser->value = val;
@@ -1049,7 +1130,7 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 								if (res) {
 									return res;
 								}
-								json_array_t *array = malloc(sizeof(json_array_t));
+								json_array_t *array = debug_malloc(sizeof(json_array_t));
 								res = json_array_init(array, 8);
 								if (res) return res;
 								json_value_t val = {
@@ -1061,6 +1142,11 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 									fprintf(stderr, LOG_STRING"Failed to push temporary into parser due to error %d\n", __FILE__, __LINE__, res);
 									return res;
 								}
+								res = json_parser_push_state(parser, current_state);
+								if (res) {
+									return res;
+								}
+								current_state = CSON_PARSER_STATE_ARRAY;
 								break;
 							} else {
 								fprintf(stderr, LOG_STRING"Found \'[\' at index %lld without key\n", __FILE__, __LINE__, parser->pointer);
@@ -1068,7 +1154,16 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 							}
 						} break;
 						case CSON_PARSER_STATE_ARRAY: {
-							json_array_t *array = malloc(sizeof(json_array_t));
+							res = json_parser_push_depth(parser);
+							if (res) {
+								return res;
+							}
+							res = json_parser_push_state(parser, current_state);
+							if (res) {
+								return res;
+							}
+							current_state = CSON_PARSER_STATE_ARRAY;
+							json_array_t *array = debug_malloc(sizeof(json_array_t));
 							res = json_array_init(array, 8);
 							if (res) return res;
 							json_value_t val = {
@@ -1089,7 +1184,6 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 					}
 				} break;
 				case ']': {
-					printf("Found \'%c\' at index %lld\n", ch, parser->pointer);
 					if (parser->parser_flag & CSON_PARSER_FLAG_FOUND_TRAILING_COMMA) {
 						fprintf(stderr, LOG_STRING"Found trailing comma\n", __FILE__, __LINE__);
 						exit(-1);
@@ -1121,6 +1215,12 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 							printf("\n");
 							json_parser_pop_depth(parser, &index);
 							if (index >= 0) {
+								if (parser->temporaries.length > 0 
+									&& parser->temporaries.objects[parser->temporaries.length - 1].value_type == JSON_OBJECT_TYPE_NUMBER
+									&& parser->temporaries.objects[parser->temporaries.length - 1].number.num_type == JSON_NUMBER_TYPE_F64
+								) {
+									convert_f64(parser);
+								} 
 								json_array_t *arr = parser->temporaries.objects[index].array;
 								for (ssize_t j = index + 1; j < parser->temporaries.length; ++j) {
 									printf("moving value to array\n");
@@ -1129,16 +1229,22 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 									parser->temporaries.objects[j] = (json_value_t){};
 								}
 								printf("new length: %lld\n", index);
-								parser->temporaries.length = index;
+								parser->temporaries.length = index + 1;
 								printf("array:\n");
 								json_array_printf(arr, 0);
 								printf("\n");
 								break;
 							} else {
 								if (parser->value.value_type != JSON_OBJECT_TYPE_ARRAY) {
-									fprintf(stderr, LOG_STRING"Failed to find ARRAY\n", __FILE__, __LINE__);
+									fprintf(stderr, LOG_STRING"Failed to find array\n", __FILE__, __LINE__);
 									exit(-1);
 								} else {
+									if (parser->temporaries.length > 0 
+										&& parser->temporaries.objects[parser->temporaries.length - 1].value_type == JSON_OBJECT_TYPE_NUMBER
+										&& parser->temporaries.objects[parser->temporaries.length - 1].number.num_type == JSON_NUMBER_TYPE_F64
+									) {
+										convert_f64(parser);
+									} 
 									index++;
 									for (ssize_t j = index; j < parser->temporaries.length; ++j) {
 										printf("moving value to array\n");
@@ -1154,6 +1260,9 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 									printf("\n");
 								}
 							}
+							json_parser_pop_state(parser, NULL);
+							current_state = CSON_PARSER_STATE_EXPECT_END_OR_COMMA;
+							parser->parser_flag &= ~(CSON_PARSER_FLAG_FOUND_SIGN | CSON_PARSER_FLAG_FOUND_PERIOD | CSON_PARSER_FLAG_FOUND_VALUE_START | CSON_PARSER_FLAG_FOUND_EXPONENT | CSON_PARSER_FLAG_FOUND_NEGATIVE_EXPONENT);
 						} break;
 						default: {
 							fprintf(stderr, LOG_STRING"Found invalid character %c at index %lld\n", __FILE__, __LINE__, ch, parser->pointer);
@@ -1162,8 +1271,6 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 					}
 				} break;
 				case ',': {
-					printf("Found \'%c\' at index %lld\n", ch, parser->pointer);
-					printf("current state: %s\n", get_state_name(current_state));
 					switch (current_state) {
 						case CSON_PARSER_STATE_EXPECT_END_OR_COMMA: {
 							res = json_parser_pop_state(parser, &current_state);
@@ -1179,24 +1286,6 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 							res = json_string_append_char(str, ch);
 							if (res) return res;
 						} break;
-						// case CSON_PARSER_STATE_OBJECT: {
-							
-						// }
-						// {
-						// 	parser_flags_printf(parser->parser_flag);
-						// 	if (parser->parser_flag & (CSON_PARSER_FLAG_FOUND_KEY_START | CSON_PARSER_FLAG_FOUND_KEY_END | CSON_PARSER_FLAG_FOUND_VALUE_START)) {
-						// 		fprintf(stderr, LOG_STRING"INVALID STATE\n", __FILE__, __LINE__);
-						// 		exit(-1);
-						// 	}
-						// } break;
-						// case CSON_PARSER_STATE_ARRAY: 
-						// {
-						// 	parser_flags_printf(parser->parser_flag);
-						// 	if (parser->parser_flag & (CSON_PARSER_FLAG_FOUND_KEY_START | CSON_PARSER_FLAG_FOUND_KEY_END | CSON_PARSER_FLAG_FOUND_VALUE_START)) {
-						// 		fprintf(stderr, LOG_STRING"INVALID STATE\n", __FILE__, __LINE__);
-						// 		exit(-1);
-						// 	}
-						// } break;
 						case CSON_PARSER_STATE_F64: {
 							res = convert_f64(parser);
 							if (res) {
@@ -1211,7 +1300,7 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 							parser->exponent = 0;
 						} 
 						case CSON_PARSER_STATE_NULL: {
-							parser_flags_printf(parser->parser_flag);
+							json_parser_flags_printf(parser->parser_flag);
 							if (parser->parser_flag & (CSON_PARSER_FLAG_FOUND_TRAILING_COMMA | CSON_PARSER_FLAG_FOUND_KEY_START | CSON_PARSER_FLAG_FOUND_KEY_END | CSON_PARSER_FLAG_FOUND_VALUE_START)) {
 								fprintf(stderr, LOG_STRING"INVALID STATE\n", __FILE__, __LINE__);
 								exit(-1);
@@ -1225,7 +1314,6 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 					}
 				} break;
 				case '\\': {
-					printf("Found \"%c\" at index %lld\n", ch, parser->pointer);
 					switch (current_state) {
 						case CSON_PARSER_STATE_ESCAPE: {
 							json_parser_pop_state(parser, &current_state);
@@ -1267,7 +1355,6 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 					}
 				} break;
 				case ' ': {
-					printf("Found \"%c\" at index %lld\n", ch, parser->pointer);
 					switch (current_state) {
 						case CSON_PARSER_STATE_KEY: {
 							json_string_t *str = &parser->temporary_keys[parser->key_count - 1];
@@ -1390,30 +1477,51 @@ int32_t json_parser_digest(json_parser_t *const parser, ssize_t n) {
 					}
 				} break;
 				default: {
-					
+					switch (current_state) {
+						case CSON_PARSER_STATE_KEY: {
+							json_string_t *str = &parser->temporary_keys[parser->key_count - 1];
+							res = json_string_append_char(str, ch);
+							if (res) return res;
+						} break;
+						case CSON_PARSER_STATE_STRING: {
+							json_string_t *str = &parser->temporaries.objects[parser->temporaries.length - 1].string;
+							res = json_string_append_char(str, ch);
+							if (res) return res;
+						} break;
+						default: {
+							fprintf(stderr, LOG_STRING"Found illegal \'%c\' character at index %lld\n", __FILE__, __LINE__, parser->pointer);
+							return CSON_PARSER_STATE_INVALID_CHARACTER;
+						} break;
+					}
 				} break;
 			}
 		} 
 	}
+	json_parser_push_state(parser, current_state);
+
 	return 0;
 }
 
 int32_t json_parser_finalize(json_parser_t *const parser, json_value_t *val) {
 	printf("Finalizing\n");
-	for (ssize_t j = 0, k = 0; j < parser->temporaries.length && k < parser->key_count; ++j, ++k) {
-		printf("moving key to object\n");
-		json_string_printf(&parser->temporary_keys[k]);
-		printf("\n");
-		printf("moving value to object\n");
-		json_value_printf(&parser->temporaries.objects[j], 0, true);
-		printf("\n");
-		json_object_move_value(parser->value.object, &parser->temporary_keys[k], &parser->temporaries.objects[j]);
-		parser->temporary_keys[k] = (json_string_t){};
-		parser->temporaries.objects[j] = (json_value_t){};
+	if (parser->parser_flag || 
+		parser->temporaries.length 
+		|| parser->key_count 
+		|| parser->state_count > 2
+		|| parser->states[0] != CSON_PARSER_STATE_EXPECT_END_OR_COMMA
+	) {
+		fprintf(stderr, LOG_STRING"Failed to properly parse file.\n", __FILE__, __LINE__);
+		json_parser_flags_printf(parser->parser_flag);
+		json_parser_print_state(parser);
+		exit(-1);
 	}
-	printf("object:\n");
+	printf("-----------------------------------------FINAL-----------------------------------------\n");
 	json_value_printf(&parser->value, 0, true);
-	json_value_free(&parser->value);
+	printf("\n");
+	printf("-----------------------------------------FINAL-----------------------------------------\n");
+	if (val) *val = parser->value;
+	else json_value_free(&parser->value);
+	json_parser_free(parser);
 	printf("\n");
 	return 0;
 }
@@ -1426,12 +1534,12 @@ int32_t json_parse(json_parser_t *const parser, json_value_t *value, const char 
 		return errno;
 	}
 	int res = 0;
-	ssize_t n = fread(parser->buf, sizeof(char), BUFFER_SIZE, file); 
+	ssize_t n = fread(parser->buf, sizeof(char), 1, file); 
 	while (n) {
 		printf("read %lld bytes\n", n);
 		res = json_parser_digest(parser, n);
 		if (res) goto cleanup;
-		n = fread(parser->buf, sizeof(char), BUFFER_SIZE, file); 
+		n = fread(parser->buf, sizeof(char), 1, file); 
 	}
 	res = json_parser_finalize(parser, value);
 	cleanup:
@@ -1440,9 +1548,13 @@ int32_t json_parse(json_parser_t *const parser, json_value_t *value, const char 
 }
 
 int32_t json_parser_free(json_parser_t *parser){
+	printf("Freeing depth stack\n");
 	debug_free(parser->depth);
+	printf("Freeing temporary keys\n");
 	debug_free(parser->temporary_keys);
+	printf("Freeing states\n");
 	debug_free(parser->states);
+	printf("Freeing temporaries\n");
 	json_array_free(&parser->temporaries);
 	*parser = (json_parser_t){};
 }

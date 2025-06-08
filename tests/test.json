@@ -16,8 +16,20 @@
 		"nested_squared2": {
 			"nested": "value",
 			"nested_squared3": {
-				"nested": "value"
-			}
+				"nested": 1.01,
+				"number1": -1.21e-1,
+				"obj3": {},
+				"number2": -1.21e-1
+			},
+			";;array": [
+				1,
+				2.0e-1,
+				-1e-1,
+				10e0,
+				{
+					"array_obj::": {}
+				}
+			]
 		}
 	}
 }
