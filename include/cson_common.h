@@ -118,7 +118,7 @@ int32_t json_object_init(json_object_t *obj, size_t size);
 int32_t json_string_free(json_string_t *string);
 
 int32_t json_string_copy(json_string_t *restrict string, const json_string_t *const restrict original);
-int32_t json_array_copy(json_array_t *const copy, const json_array_t *const obj);
+int32_t json_array_copy(json_array_t *const restrict copy, const json_array_t *const restrict obj);
 int32_t json_object_copy(json_object_t *const copy, const json_object_t *const obj);
 
 int32_t json_string_append_char(json_string_t *str, const char ch);
